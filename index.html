@@ -1,0 +1,80 @@
+<html>
+  <head>
+    <title>RA map generator prototype</title>
+    <script type="module" src="main.js"></script>
+    <style>
+      canvas {
+          image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <canvas id="canvas" width="64" height="64"></canvas>
+    </div>
+    <input id="zoom" value="4"><label>Preview zoom</label><br>
+    <button onclick="javascript:generate()">Generate</button><button onclick="javascript:randomSeed();generate();">Generate with random seed</button><br>
+    <p>Terrain settings:</p>
+    <input id="seed" value="-2024525772"><label>Seed</label><br>
+    <input id="size" value="96"><label>Size</label><br>
+    <input id="water" value="0.50"><label>Water fraction</label><br>
+    <input id="terrain-smoothing" value="4"><label>Terrain smoothing</label><br>
+    <input id="smoothing-threshold" value="0.33"><label>Iterative smoothing threshold</label><br>
+    <input id="minimum-thickness" value="5"><label>Minimum terrain thickness</label><br>
+    <input id="wavelength-scale" value="1.0"><label>Terrain noise wavelength scale</label><br>
+    <input id="rotations" value="2"><label>Rotations</label><br>
+    <input id="mirror" value="0"><label>Mirror direction (1, 2, 3, 4)</label><br>
+    <!-- <input id="minFeature" value="12"><label>Minimum feature size</label><br> -->
+    <input id="create-entities" type="checkbox"><label>Create entities</label><br>
+    <p>Per-rotation settings:</p>
+    <input id="players-per-rotation" value="1"><label>Players per rotation</label><br>
+    <input id="starting-mines" value="3"><label>Starting mines</label><br>
+    <input id="starting-ore" value="3"><label>Starting ore</label><br>
+    <p>Spacing settings:</p>
+    <input id="central-reservation" value="16"><label>Central/Mirror player reservation</label><br>
+    <input id="spawn-region-size" value="8"><label>Spawn region size</label><br>
+    <input id="spawn-build-size" value="4"><label>Spawn build size</label><br>
+    <!-- <input id="expansion-ore" value="3"><label>Expansion ore</label><br> -->
+    <!-- <input id="expansion-ore" value="3"><label>Expansion ore</label><br> -->
+    <input id="spawn-mines" value="3"><label>Number of spawn ore mines</label><br>
+    <input id="spawn-ore" value="3"><label>Spawn ore size</label><br>
+    <input id="max-expansions" value="4"><label>Max expansion count</label><br>
+    <input id="min-expansion-size" value="2"><label>Min expansion size</label><br>
+    <input id="max-expansion-size" value="12"><label>Max expansion size</label><br>
+    <input id="expansion-inner" value="4"><label>Expansion inner size</label><br>
+    <input id="expansion-border" value="4"><label>Expansion border size</label><br>
+    <input id="expansion-mines" value="0.02"><label>Expansion extra mine weight</label><br>
+    <input id="expansion-ore" value="5"><label>Expansion ore size</label><br>
+    <input id="rock-weight" value="0.1"><label>Rock weight</label><br>
+    <input id="rock-size" value="4"><label>Rock size</label><br>
+    <input id="max-buildings" value="3"><label>Max neutral building count</label><br>
+    <a id="saveBin" href='#'>Save map.bin</a><br>
+    <pre id="description"></pre>
+    <hr>
+    <div id="debug"></div>
+    <pre>
+Seed list:
+-2024525772
+127531097
+1574961058
+1936200760
+639876195
+594113115
+1031828710
+1540134231
+1865077859
+221031888
+995298775
+56044641 (thin masses)
+-877769920 @ wavelength 0.2
+-506412402 @ wavelength 0.25 (bi-stable thin masses)
+810287738 (I just like the look of it)
+679141286 (couple of ponds)
+2127732142 (tiling fails)
+270145234 (lake @ water 0.25)
+-1936116975 (size 128, 0.35 water, 0.3 wavelength)
+-88112732 (shortcircuit. size 128, 0.35 water, 0.1 wavelength)
+813543009 (random crash?)
+    </pre>
+  </body>
+</html>

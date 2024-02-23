@@ -1,0 +1,8 @@
+/scratch
+**/*~
+**/#*#
+
+# Copyright-tainted files (don't commit):
+temperat.yaml
+temperat-info.yaml
+temperat-info.json
