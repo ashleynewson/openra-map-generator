@@ -330,8 +330,6 @@ function writeU32(buffer, i, value) {
 
 function calibrateHeightInPlace(values, target, fraction) {
     const sorted = values.slice().sort();
-    // const referencePoint = ((values.length - 1) * fraction) | 0;
-    // const adjustment = target - sorted[referencePoint];
     const adjustment = target - arrayQuantile(sorted, fraction);
     for (let i = 0; i < values.length; i++) {
         values[i] += adjustment;
@@ -368,7 +366,6 @@ function calculateRoominess(elevations, size, roomyEdges) {
             if (pCount !== 9 && nCount !== 9) {
                 roominess[cy * size + cx] = (elevations[cy * size + cx] >= 0 ? 1 : -1);
                 next.push({x:cx, y:cy});
-                // markAt(x, y, 2, next);
             }
         }
     }
@@ -382,7 +379,6 @@ function calculateRoominess(elevations, size, roomyEdges) {
         current = next;
         next = [];
         for (let point of current) {
-            // markAt(point.x, point.y, distance, next);
             let cx = point.x;
             let cy = point.y;
             for (let oy = -1; oy <= 1; oy++) {
@@ -884,142 +880,6 @@ function fixThinMassesInPlaceFull(input, size, growLand, width) {
     return [thinnest, changesAcc];
 }
 
-// DEPRECATED
-// This method doesn't work very well and isn't generalized
-function fixThinMassesOld(input, size, growLand, radius) {
-    // TODO: Sweep with given radius.
-    // (algorithm not planned!)
-    let signChanges = 0;
-    const sweep = [
-        [-1, -1],
-        [ 0, -1],
-        [ 1, -1],
-        [ 1,  0],
-        [ 1,  1],
-        [ 0,  1],
-        [-1,  1],
-        [-1,  0],
-    ];
-    const output = input.slice();
-    let changes = 0;
-    for (let cy = 0; cy < size; cy++) {
-        for (let cx = 0; cx < size; cx++) {
-            const ci = cy * size + cx;
-            const cv = input[ci] >= 0 ? true : false;
-            if (cv !== growLand) {
-                continue;
-            }
-            // Array not strictly needed. Can be done in one pass.
-            const values = [];
-            let sameCount = 0;
-            for (const [ox, oy] of sweep) {
-                let x = cx + ox;
-                let y = cy + oy;
-                if (x >= size) x = size - 1;
-                if (x < 0) x = 0;
-                if (y >= size) y = size - 1;
-                if (y < 0) y = 0;
-                const i = y * size + x;
-                const v = input[i] >= 0 ? true : false;
-                if (v === cv) {
-                    sameCount++;
-                }
-                values.push(v);
-            }
-            if (sameCount >= 3) {
-                let edges = 0;
-                let last = values[values.length - 1];
-                for (const curr of values) {
-                    if (curr !== last) {
-                        edges++;
-                    }
-                    last = curr;
-                }
-                if (edges <= 2) {
-                    // thick
-                    continue;
-                }
-            }
-            // thin
-            changes++;
-            for (let oy = -radius; oy <= radius; oy++) {
-                for (let ox = -radius; ox <= radius; ox++) {
-                    let x = cx + ox;
-                    let y = cy + oy;
-                    if (x < 0 || x >= size || y < 0 || y >= size) {
-                        continue;
-                    }
-                    const i = y * size + x;
-                    output[i] = input[ci];
-                }
-            }
-        }
-    }
-    return [output, changes];
-}
-
-function collapseTiles(biases, size, params) {
-    // TODO: make progress a measure of priority?
-    const maxProgress = size * size;
-    const committed = new TileState(size);
-    for (let i = 0; i < committed.priorities.length; i++) {
-        const y = (i / size) | 0;
-        const x = i % size;
-        committed.updatePriorityAt(x, y, biases, info);
-    }
-    dump2d("priority", committed.priorities.priorities, size, size);
-    // for (
-    //     let i = committed.priorities.getMaxIndex();
-    //     committed.priorities.get(i) < Infinity;
-    //     i = committed.priorities.getMaxIndex()
-    // ) {
-    //     const y = i / size;
-    //     const x = i % size;
-    //     // Create list of candidates
-    //     if (committed.candidates === null) {
-    //         committed.candidates = [];
-    //         for (const tiIndex in info.TileInfo) {
-    //             if (!Object.hasOwn(info.TileInfo, tiIndex)) {
-    //                 continue;
-    //             }
-    //             const candidate = {
-    //                 tiles: 
-    //             }
-    //             committed.candidates.push(candidate);
-    //         }
-    //     }
-    //     // Theorize about candidates
-
-    //     // Find best candidate
-    //     const best = ...;
-    //     // Merge candidate to committed
-    //     committed.progress = best.progress;
-    //     committed.error = best.error;
-    //     committed.priorities = best.priorities;
-    //     best.tiles.merge();
-    //     best.hEdges.merge();
-    //     best.vEdges.merge();
-    //     committed.candidates = best.candidates;
-    //     for (const candidate of committed.candidates) {
-    //         candidate.tiles.rebase(committed.tiles);
-    //         candidate.hEdges.rebase(committed.hEdges);
-    //         candidate.vEdges.rebase(committed.vEdges);
-    //     }
-    // }
-    let depth = 0;
-    while (committed.progress < /*maxProgress*/100) {
-        committed.search(4, maxProgress, biases, info);
-        const best = committed.candidates[0];
-        best ?? die("no candidate, but not finished?");
-        console.debug(best.tiles.over);
-        best.commit();
-        depth++;
-        console.log(`depth: ${depth}, progress: ${committed.progress}; error: ${committed.error}`);
-    }
-    console.debug(committed);
-    return committed.tiles;
-}
-
 function zip2(a, b, f) {
     a.length === b.length || die("arrays do not have equal length");
     const c = a.slice();
@@ -1472,14 +1332,12 @@ function tileCoastline(tiles, tilesSize, coastline, random, params) {
         const fy = ty - template.MovesY;
         const templateInfo = info.Tileset.Templates[template.Name];
         paintTemplate(tiles, tilesSize, fx - template.OffsetX + minPointX, fy - template.OffsetY + minPointY, templateInfo);
-        // console.log(`chose ${template.Name} at ${fx}, ${fy}`);
         return {
             x: fx,
             y: fy,
             d: template.StartDir,
         };
     };
-    // console.log(`---`);
 
     // { // DEBUG
     //     const debugArray = new Int32Array(sizeX * sizeY);
@@ -1614,22 +1472,6 @@ function generateMap(params) {
             }
             dump2d(`leveled (round ${i1})`, elevation, size, size);
         }
-        // let changes;
-        // [elevation, changes] = fixThinMasses(elevation, size, true, /*radius=*/1);
-        // dump2d(`grow thin land masses (round ${i1}: ${changes} fixes)`, elevation.map(v=>Math.sign(v)), size, size);
-        // if (changes !== 0) {
-        //     console.log("Thin land masses found. Fixing and running extra smoothing passes.");
-        //     continue;
-        // }
-
-        // [elevation, changes] = fixThinMasses(elevation, size, false, /*radius=*/1);
-        // dump2d(`grow thin sea masses (round ${i1}: ${changes} fixes)`, elevation.map(v=>Math.sign(v)), size, size);
-        // if (changes !== 0) {
-        //     console.log("Thin sea masses found. Fixing and running extra smoothing passes.");
-        //     continue;
-        // } else {
-        //     break;
-        // }
     }
 
     let coastlines = detectCoastlines(elevation, size);
@@ -1728,80 +1570,8 @@ function generateMap(params) {
         dump2d("entities", elevation.map(x=>(x>0?1:0)), size, size, entities);
     }
 
-    // // Zone for wave-function collapse
-    // roominess = calculateRoominess(elevation, size, true);
-    // const waterBias = new Float32Array(size * size);
-    // const clearBias = new Float32Array(size * size);
-    // const beachBias = new Float32Array(size * size);
-    // for (let i = 0; i < waterBias.length; i++) {
-    //     waterBias[i] = 0.0;
-    //     clearBias[i] = 0.0;
-    //     beachBias[i] = 0.0;
-    //     if (roominess[i] === 1) {
-    //         beachBias[i] = 1.0;
-    //         clearBias[i] = 1.0;
-    //     } else if (roominess[i] === -1) {
-    //         beachBias[i] = 1.0;
-    //         waterBias[i] = 1.0;
-    //     } else if (roominess[i] > 0) {
-    //         waterBias[i] = 0.0;
-    //         clearBias[i] = roominess[i];
-    //         beachBias[i] = 0.0;
-    //     } else { // roominess is never zero
-    //         waterBias[i] = -roominess[i];
-    //         clearBias[i] = 0.0;
-    //     }
-    //     // if (roominess[i] >= 2) {
-    //     //     waterBias[i] = 0.0;
-    //     //     clearBias[i] = 2.0;
-    //     // } else if (roominess[i] >= 1) {
-    //     //     waterBias[i] = 0.1;
-    //     //     clearBias[i] = 1.0;
-    //     // } else if (roominess[i] >= -1) { // roominess[i] never equals zero.
-    //     //     waterBias[i] = 0.5;
-    //     //     clearBias[i] = 1.0;
-    //     // } else if (roominess[i] >= -2) {
-    //     //     waterBias[i] = 0.8;
-    //     //     clearBias[i] = 1.0;
-    //     // } else if (roominess[i] >= -3) {
-    //     //     waterBias[i] = 1.0;
-    //     //     clearBias[i] = 1.0;
-    //     // } else {
-    //     //     waterBias[i] = 1.0;
-    //     //     clearBias[i] = 0.0;
-    //     // }
-    // }
-    // dump2d("waterBias", waterBias, size, size);
-    // dump2d("clearBias", clearBias, size, size);
-    // const rockBias = new Float32Array(size * size);
-    // for (let entity of entities) {
-    //     if (entity.type === "rock") {
-    //         reserveCircleInPlace(rockBias, size, entity.x, entity.y, entity.radius, (rSq, v)=>Math.max(v, 1/(rSq+1)));
-    //     }
-    // }
-    // // dump2d("rockBias", rockBias, size, size);
-    // // const clearBias = new Float32Array(size * size);
-    // // for (let i = 0; i < clearBias.length; i++) {
-    // //     clearBias[i] = 1 - waterBias[i] - rockBias[i];
-    // // }
-
-    // // Wave-funtion collapse
-    // const tiles = new Array(size * size);
-    // const tiles = collapseTiles(
-    //     {
-    //         "Clear": clearBias,
-    //         "Water": waterBias,
-    //         // "Rock": rockBias,
-    //         "Beach": beachBias,
-    //     },
-    //     size,
-    //     params,
-    // );
-    
     const tiles = new Array(size * size);
 
-    // const rand = new Uint8Array(map.types.length);
-    // crypto.getRandomValues(rand);
     for (let n = 0; n < tiles.length; n++) {
         if (elevation[n] >= 0) {
             tiles[n] = 't255';
@@ -1811,19 +1581,13 @@ function generateMap(params) {
         if (tiles[n] === null) {
             tiles[n] = 't51i8';
         }
-        // map.types[i] = (elevation[i] >= 0) ? "Clear" : "Water";
-        // map.types[i] = (map.random.i32() & 0x100) ? "Clear" : "Water";
-        // map.types[i] = (rand[i] & 1) ? "Clear" : "Water";
     }
     for (const coastline of coastlines) {
         tileCoastline(tiles, size, coastline, random, params);
     }
 
     // Assign missing indexes
-    // const tRe = /^t(\d+)$/;
     for (let n = 0; n < tiles.length; n++) {
-        // const t = map.tiles[n].match(tRe);
-        // if (t != null) {
         if (codeMap[tiles[n]].Codes.length > 1) {
             tiles[n] = random.pick(codeMap[tiles[n]].Codes);
         }
@@ -1872,7 +1636,6 @@ function generateMap(params) {
             const t = ti[1] | 0;
             const i = ti[2] | 0;
             map.types[n] = codeMap[map.tiles[n]].Type;
-            // map.types[i] = codeMap[info.TileInfo["t" + map.tileT[i] + "i" + map.tileI[i]]].Type;
 
             const dataGridN = (x + 1) * map.bin.u16width + (y + 1);
             const dataTileOffset = map.bin.u32tileOffset + dataGridN * 3;
@@ -2047,9 +1810,6 @@ fetch("temperat-info.json")
         const templatesByStartDir = [[], [], [], []];
         const templatesByEndDir = [[], [], [], []];
         for (const templateName of Object.keys(info.TemplatePaths).toSorted()) {
-            // if (!Object.hasOwn(info.TemplatePaths, templateName)) {
-            //     continue;
-            // }
             const template = info.TemplatePaths[templateName];
             template.Path = template.Path.map(p => ({x: p[0] | 0, y: p[1] | 0}));
             template.PathND = template.PathND.map(p => ({x: p[0] | 0, y: p[1] | 0}));
