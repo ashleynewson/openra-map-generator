@@ -104,18 +104,26 @@ function sinSnap(angle) {
     }
 }
 
-const DIRECTION_R = 0;
-const DIRECTION_D = 1;
-const DIRECTION_L = 2;
-const DIRECTION_U = 3;
+const DIRECTION_R  = 0;
+const DIRECTION_RD = 1;
+const DIRECTION_D  = 2;
+const DIRECTION_LD = 3;
+const DIRECTION_L  = 4;
+const DIRECTION_LU = 5;
+const DIRECTION_U  = 6;
+const DIRECTION_RU = 7;
 const DIRECTION_NONE = -1;
 
 function letterToDirection(letter) {
     switch (letter) {
-    case 'R': return DIRECTION_R;
-    case 'D': return DIRECTION_D;
-    case 'L': return DIRECTION_L;
-    case 'U': return DIRECTION_U;
+    case 'R' : return DIRECTION_R;
+    case 'RD': return DIRECTION_RD;
+    case 'D' : return DIRECTION_D;
+    case 'LD': return DIRECTION_LD;
+    case 'L' : return DIRECTION_L;
+    case 'LU': return DIRECTION_LU;
+    case 'U' : return DIRECTION_U;
+    case 'RU': return DIRECTION_RU;
     default: die('Bad direction letter: ' + letter);
     }
 }
@@ -890,6 +898,7 @@ function zip2(a, b, f) {
 }
 
 function detectCoastlines(elevation, size) {
+    const typeN = info.typeNs["Coastline"];
     // There is redundant memory/iteration, but I don't care enough.
     const coastlineH = new Int8Array(size * size);
     const coastlineV = new Int8Array(size * size);
@@ -916,7 +925,7 @@ function detectCoastlines(elevation, size) {
         const points = [];
         let x = sx;
         let y = sy;
-        points.push({x, y});
+        points.push({x, y, typeN});
         do {
             switch (direction) {
             case DIRECTION_R:
@@ -936,7 +945,7 @@ function detectCoastlines(elevation, size) {
                 coastlineV[y * size + x] = 0;
                 break;
             }
-            points.push({x, y});
+            points.push({x, y, typeN});
             const i = y * size + x;
             const r = x < size && coastlineH[i] > 0;
             const d = y < size && coastlineV[i] < 0;
@@ -963,7 +972,10 @@ function detectCoastlines(elevation, size) {
                 break;
             }
         } while (x != sx || y != sy);
-        coastlines.push(points);
+        coastlines.push({
+            points,
+            permittedTemplates: info.templatesByType["Coastline"],
+        });
     };
     // Trace non-loops (from edge of map)
     for (let n = 1; n < size; n++) {
@@ -1016,91 +1028,116 @@ function detectCoastlines(elevation, size) {
     return coastlines;
 }
 
-function tweakCoastlines(coastlines, size) {
+function tweakPath(path, size) {
     size ?? die("need size");
-    const tweakedCoastlines = [];
-    for (const coastline of coastlines) {
-        const len = coastline.length;
-        const lst = len - 1;
-        if (coastline[0].x === coastline[lst].x && coastline[0].y === coastline[lst].y) {
-            // Closed loop. Find the longest straight
-            // (nrlen excludes the repeated point at the end.)
-            const nrlen = len - 1;
-            let prevDim = -1;
-            let scanStart = -1;
-            let bestScore = -1;
-            let bestBend = -1;
-            let prevBend = -1;
-            let prevI = 0;
-            for (let i = 1;; i++) {
-                if (i === nrlen) {
-                    i = 0;
-                }
-                const dim = coastline[i].x === coastline[prevI].x ? 1 : 0;
-                if (prevDim !== -1 && prevDim !== dim) {
-                    if (scanStart === -1) {
-                        // This is technically just after the bend. But that's fine.
-                        scanStart = i;
-                    } else {
-                        let score = prevI - prevBend;
-                        if (score < 0) {
-                            score += nrlen;
-                        }
-                        if (score > bestScore) {
-                            bestBend = prevBend;
-                            bestScore = score;
-                        }
-                        if (i === scanStart) {
-                            break;
-                        }
-                    }
-                    prevBend = prevI;
-                }
-                prevDim = dim;
-                prevI = i;
+    const points = path.points;
+    const len = path.points.length;
+    const lst = len - 1;
+    const tweakedPath = Object.assign({}, path);
+    // tweakedPath.permittedTemplates = path.permittedTemplates;
+    if (points[0].x === points[lst].x && points[0].y === points[lst].y) {
+        // Closed loop. Find the longest straight
+        // (nrlen excludes the repeated point at the end.)
+        const nrlen = len - 1;
+        let prevDim = -1;
+        let scanStart = -1;
+        let bestScore = -1;
+        let bestBend = -1;
+        let prevBend = -1;
+        let prevI = 0;
+        for (let i = 1;; i++) {
+            if (i === nrlen) {
+                i = 0;
             }
-            const favouritePoint = (bestBend + (bestScore >> 1)) % nrlen;
-            // Repeat the start at the end.
-            tweakedCoastlines.push([...coastline.slice(favouritePoint, nrlen), ...coastline.slice(0, favouritePoint + 1)]);
-        } else {
-            const extend = function(point, extensionLength) {
-                const ox = (point.x === 0)    ? -1
-                         : (point.x === size) ?  1
-                         : 0;
-                const oy = (point.y === 0)    ? -1
-                         : (point.y === size) ?  1
-                         : 0;
-                const extension = [];
-                let newPoint = point;
-                for (let i = 0; i < extensionLength; i++) {
-                    newPoint = {x: newPoint.x + ox, y: newPoint.y + oy};
-                    extension.push(newPoint);
+            const dim = points[i].x === points[prevI].x ? 1 : 0;
+            if (prevDim !== -1 && prevDim !== dim) {
+                if (scanStart === -1) {
+                    // This is technically just after the bend. But that's fine.
+                    scanStart = i;
+                } else {
+                    let score = prevI - prevBend;
+                    if (score < 0) {
+                        score += nrlen;
+                    }
+                    if (score > bestScore) {
+                        bestBend = prevBend;
+                        bestScore = score;
+                    }
+                    if (i === scanStart) {
+                        break;
+                    }
                 }
-                return extension;
-            };
-            // Open paths. Extend to edges.
-            const startExt = extend(coastline[0], /*extensionLength=*/4).reverse();
-            const endExt = extend(coastline[lst], /*extensionLength=*/4);
-            tweakedCoastlines.push([...startExt, ...coastline, ...endExt]);
+                prevBend = prevI;
+            }
+            prevDim = dim;
+            prevI = i;
         }
+        const favouritePoint = (bestBend + (bestScore >> 1)) % nrlen;
+        // Repeat the start at the end.
+        tweakedPath.points = [...points.slice(favouritePoint, nrlen), ...points.slice(0, favouritePoint + 1)];
+        tweakedPath.startDirN = calculateDirectionPoints(tweakedPath.points[0], tweakedPath.points[1]);
+        tweakedPath.endDirN = calculateDirectionPoints(tweakedPath.points[0], tweakedPath.points[1]);
+    } else {
+        // TODO: Support non-edge non-loop paths. However, some care is
+        // needed in case they start having the potential to overlap.
+        // (This could perhaps instead be done in the path layout.
+        const extend = function(point, extensionLength) {
+            const ox = (point.x === 0)    ? -1
+                  : (point.x === size) ?  1
+                  : 0;
+            const oy = (point.y === 0)    ? -1
+                  : (point.y === size) ?  1
+                  : 0;
+            const extension = [];
+            let newPoint = point;
+            for (let i = 0; i < extensionLength; i++) {
+                newPoint = Object.assign({}, point, {x: newPoint.x + ox, y: newPoint.y + oy});
+                extension.push(newPoint);
+            }
+            return extension;
+        };
+        // Open paths. Extend to edges.
+        const startExt = extend(points[0], /*extensionLength=*/4).reverse();
+        const endExt = extend(points[lst], /*extensionLength=*/4);
+        tweakedPath.points = [...startExt, ...points, ...endExt];
+        tweakedPath.startDirN = calculateDirectionPoints(tweakedPath.points[0], tweakedPath.points[1]);
+        tweakedPath.endDirN = calculateDirectionPoints(tweakedPath.points[tweakedPath.points.length - 2], tweakedPath.points[tweakedPath.points.length - 1]);
     }
-    return tweakedCoastlines;
+    return tweakedPath;
 }
 
-function calculateDirection(now, next) {
+function calculateDirectionXY(dx, dy) {
+    if (dx > 0) {
+        if (dy > 0) {
+            return DIRECTION_RD;
+        } else if (dy < 0) {
+            return DIRECTION_RU;
+        } else {
+            return DIRECTION_R;
+        }
+    } else if (dx < 0) {
+        if (dy > 0) {
+            return DIRECTION_LD;
+        } else if (dy < 0) {
+            return DIRECTION_LU;
+        } else {
+            return DIRECTION_L;
+        }
+        return DIRECTION_L;
+    } else {
+        if (dy > 0) {
+            return DIRECTION_D;
+        } else if (dy < 0) {
+            return DIRECTION_U;
+        } else {
+            die("Bad direction");
+        }
+    }
+}
+function calculateDirectionPoints(now, next) {
     const dx = next.x - now.x;
     const dy = next.y - now.y;
-    if (dx > 0) {
-        return DIRECTION_R;
-    } else if (dx < 0) {
-        return DIRECTION_L;
-    }
-    if (dy > 0) {
-        return DIRECTION_D;
-    } else if (dy < 0) {
-        return DIRECTION_U;
-    }
-    die("Bad direction");
+    return calculateDirectionXY(dx, dy);
 }
 
 function paintTemplate(tiles, size, px, py, template) {
@@ -1163,12 +1200,12 @@ function tileCoastline(tiles, tilesSize, coastline, random, params) {
             let direction_mask;
             if (pointI + 1 < coastline.length) {
                 const pointNext = coastline[pointI + 1];
-                direction_mask = 1 << calculateDirection(point, pointNext);
+                direction_mask = 1 << calculateDirectionPoints(point, pointNext);
             } else if (isLoop) {
                 break;
             } else {
                 const pointPrev = coastline[pointI - 1];
-                direction_mask = 1 << calculateDirection(pointPrev, point);
+                direction_mask = 1 << calculateDirectionPoints(pointPrev, point);
             }
             const minX = point.x - deviation;
             const minY = point.y - deviation;
@@ -1277,7 +1314,7 @@ function tileCoastline(tiles, tilesSize, coastline, random, params) {
     const sx = coastline[0].x;
     const sy = coastline[0].y;
     const si = sy * sizeX + sx;
-    const sd = calculateDirection(coastline[0], coastline[1]);
+    const sd = calculateDirectionPoints(coastline[0], coastline[1]);
     const sid = 4 * si + sd
     {
         scores[sid] = 0;
@@ -1331,6 +1368,9 @@ function tileCoastline(tiles, tilesSize, coastline, random, params) {
         const fx = tx - template.MovesX;
         const fy = ty - template.MovesY;
         const templateInfo = info.Tileset.Templates[template.Name];
+        // TODO: This may leave small gaps if the best path deviates from the
+        // ideal path. Fill these with the appropriate tile, which should
+        // ultimately be specified in the path.
         paintTemplate(tiles, tilesSize, fx - template.OffsetX + minPointX, fy - template.OffsetY + minPointY, templateInfo);
         return {
             x: fx,
@@ -1370,9 +1410,9 @@ function tileCoastline(tiles, tilesSize, coastline, random, params) {
         let ty = coastline[coastline.length-1].y;
         let td;
         if (isLoop) {
-            td = calculateDirection(coastline[0], coastline[1]);
+            td = calculateDirectionPoints(coastline[0], coastline[1]);
         } else {
-            td = calculateDirection(coastline[coastline.length-2], coastline[coastline.length-1]);
+            td = calculateDirectionPoints(coastline[coastline.length-2], coastline[coastline.length-1]);
         }
         let ti = ty * sizeX + tx;
         let tid = 4 * ti + td;
@@ -1385,6 +1425,348 @@ function tileCoastline(tiles, tilesSize, coastline, random, params) {
         // No need to check direction. If that is an issue, I have bigger problems to worry about.
         while (p.x !== sx || p.y !== sy) {
             p = traceBackStep(p.x, p.y, p.d);
+        }
+    }
+}
+
+function tilePath(tiles, tilesSize, path, random, params) {
+    let minPointX = Infinity;
+    let minPointY = Infinity;
+    let maxPointX = -Infinity;
+    let maxPointY = -Infinity;
+    for (const point of path.points) {
+        if (point.x < minPointX) {
+            minPointX = point.x;
+        }
+        if (point.y < minPointY) {
+            minPointY = point.y;
+        }
+        if (point.x > maxPointX) {
+            maxPointX = point.x;
+        }
+        if (point.y > maxPointY) {
+            maxPointY = point.y;
+        }
+    }
+    const maxDeviation = (params.minimumThickness - 1) >> 1;
+    minPointX -= maxDeviation;
+    minPointY -= maxDeviation;
+    maxPointX += maxDeviation;
+    maxPointY += maxDeviation;
+    const points = path.points.map(point => Object.assign({}, point, {x: point.x - minPointX, y: point.y - minPointY}));
+
+    const isLoop =
+          points[0].x === points[points.length-1].x &&
+          points[0].y === points[points.length-1].y;
+
+    // grid points (not squares), so these are offset 0.5 from tile centers.
+    const sizeX = 1 + maxPointX - minPointX;
+    const sizeY = 1 + maxPointY - minPointY;
+    const sizeXY = sizeX * sizeY;
+    // // An interpolated measurement/estimate of the progress through a
+    // // path for points surrounding the path. Measured in rough number
+    // // of path steps.
+    // const progressions = new Float32Array(sizeX * sizeY).fill(0);
+
+    const MAX_DEVIATION = 0xffffffff;
+    // Bit masks of 8-angle directions which are considered a positive progress
+    // traversal. Template choices with an overall negative progress traversal
+    // are rejected.
+    const directions = new Uint8Array(sizeXY).fill(0);
+    // How far away from the path this point is.
+    const deviations = new Uint32Array(sizeXY).fill(MAX_DEVIATION);
+    // Bit masks of 8-angle directions which define whether it's permitted
+    // to traverse from one point to a given neighbour.
+    const traversables = new Uint8Array(sizeXY).fill(0);
+    {
+        const gradientX = new Int32Array(sizeXY).fill(0);
+        const gradientY = new Int32Array(sizeXY).fill(0);
+        for (let pointI = 0; pointI < points.length; pointI++) {
+            if (isLoop && pointI == 0) {
+                // Same as last point.
+                continue;
+            }
+            const point = points[pointI];
+            const pointPrevI = pointI - 1;
+            const pointNextI = pointI + 1;
+            let directionX = 0;
+            let directionY = 0;
+            if (pointNextI < points.length) {
+                directionX += points[pointNextI].x - point.x;
+                directionY += points[pointNextI].y - point.y;
+            }
+            if (pointPrevI >= 0) {
+                directionX += point.x - points[pointPrevI].x;
+                directionY += point.y - points[pointPrevI].y;
+            }
+            // const direction = calculateDirectionXY(directionX, directionY);
+            // //            Direction: 0123456701234567
+            // //                        UUU DDD UUU DDD
+            // //                        R LLL RRR LLL R
+            // const direction_mask = (0b100000111000001 >> (7 - direction)) & 0b11111111;
+            for (let deviation = 0; deviation <= maxDeviation; deviation++) {
+                const minX = point.x - deviation;
+                const minY = point.y - deviation;
+                const maxX = point.x + deviation;
+                const maxY = point.y + deviation;
+                for (let y = minY; y <= maxY; y++) {
+                    for (let x = minX; x <= maxX; x++) {
+                        const i = y * sizeX + x;
+                        if (deviation < deviations[i]) {
+                            deviations[i] = deviation;
+                        }
+                        // if (directions[i] === 0) {
+                        //     directions[i] = direction_mask;
+                        // }
+                        if (deviation === maxDeviation) {
+                            gradientX[i] += directionX;
+                            gradientY[i] += directionY;
+                            if (x > minX) {
+                                // traversables[i] |= 1 << DIRECTION_L;
+                                traversables[i] |=
+                                    (1 << DIRECTION_LU) | (1 << DIRECTION_L) | (1 << DIRECTION_LD);
+                            }
+                            if (x < maxX) {
+                                // traversables[i] |= 1 << DIRECTION_R;
+                                traversables[i] |=
+                                    (1 << DIRECTION_RD) | (1 << DIRECTION_R) | (1 << DIRECTION_RU);
+                            }
+                            if (y > minY) {
+                                // traversables[i] |= 1 << DIRECTION_U;
+                                traversables[i] |=
+                                    (1 << DIRECTION_RU) | (1 << DIRECTION_U) | (1 << DIRECTION_LU);
+                            }
+                            if (y < maxY) {
+                                // traversables[i] |= 1 << DIRECTION_D;
+                                traversables[i] |=
+                                    (1 << DIRECTION_LD) | (1 << DIRECTION_D) | (1 << DIRECTION_RD);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Untested/unproven
+        for (let i = 0; i < sizeXY; i++) {
+            if (gradientX[i] === 0 && gradientY[i] === 0) {
+                directions[i] = 0;
+                continue;
+            }
+            const direction = calculateDirectionXY(gradientX[i], gradientY[i]);
+            //     direction: 0123456701234567
+            //                 UUU DDD UUU DDD
+            //                 R LLL RRR LLL R
+            directions[i] = (0b100000111000001 >> (7 - direction)) & 0b11111111;
+        }
+    }
+
+    const templates = path.permittedTemplates;
+    const templatesByStartBorder = [];
+    const templatesByEndBorder = [];
+    const MAX_SCORE = 0xffffffff;
+    // const priorities = [];
+    // const scores = [];
+
+    // Z refers to the "layer", mapped from a "border".
+    // i  =              y * SizeX + x // i does not dictate a layer.
+    // il = z * SizeXY + y * SizeX + x // il is for a specific layer.
+    const borderToZ = [];
+    const zToBorder = [];
+    // const borders = [];
+
+    {
+        const assignForBorder = function(border) {
+            if (typeof(borderToZ[border]) !== "undefined") {
+                return;
+            }
+            borderToZ[border] = zToBorder.length;
+            zToBorder.push(border);
+            templatesByStartBorder[border] = [];
+            templatesByEndBorder[border] = [];
+            // borders.push(border);
+            // priorities[border] = new PriorityArray(sizeXY).fill(-Infinity);
+            // scores[border] = new Uint32Array(sizeXY).fill(MAX_SCORE);
+        };
+        for (const template of templates) {
+            assignForBorder(template.StartBorderN);
+            assignForBorder(template.EndBorderN);
+        }
+        for (const template of templates) {
+            // if (typeof(templatesByStartBorder[template.StartBorderN] === "undefined")) {
+            //     templatesByStartBorder[template.StartBorderN] = [];
+            // }
+            // if (typeof(templatesByEndBorder[template.EndBorderN] === "undefined")) {
+            //     templatesByEndBorder[template.EndBorderN] = [];
+            // }
+            templatesByStartBorder[template.StartBorderN].push(template);
+            templatesByEndBorder[template.EndBorderN].push(template);
+            // if (typeof(borderToZ[template.StartBorderN]) === "undefined") {
+            //     borderToZ[template.StartBorderN] = sizeXYZ;
+            // }
+            // if (typeof(borderToZ[template.EndBorderN]) === "undefined") {
+            //     borderToZ[template.EndBorderN] = sizeXYZ;
+            // }
+            // sizeXYZ += sizeXY;
+        }
+    }
+
+    const sizeXYZ = sizeXY * zToBorder.length;
+    const priorities = new PriorityArray(sizeXYZ).fill(-Infinity);
+    const scores = new Uint32Array(sizeXYZ).fill(MAX_SCORE);
+
+    // Assumes both f and t are in the sizeX/sizeY bounds.
+    const scoreTemplate = function(template, fx, fy) {
+        let deviationAcc = 0;
+        let progressionAcc = 0;
+        const lastPointI = template.RelPathND.length - 1;
+        for (let pointI = 0; pointI <= lastPointI; pointI++) {
+            const point = template.RelPathND[pointI];
+            const px = fx + point.x;
+            const py = fy + point.y;
+            const pi = py * sizeX + px;
+            if (px < 0 || px >= sizeX || py < 0 || py >= sizeY) {
+                // Intermediate point escapes array bounds.
+                return MAX_SCORE;
+            }
+            if (pointI < lastPointI) {
+                if ((traversables[pi] & point.dm) === 0) {
+                    // Next point escapes traversable area.
+                    return MAX_SCORE;
+                }
+                if ((directions[pi] & point.dm) === point.dm) {
+                    progressionAcc++;
+                } else if ((directions[pi] & point.dmr) === point.dmr) {
+                    progressionAcc--;
+                }
+            }
+            if (pointI > 0) {
+                // Don't double-count the template's path's starts and ends
+                deviationAcc += deviations[pi];
+            }
+        }
+        if (progressionAcc < 0) {
+            // It's moved backwards
+            return MAX_SCORE;
+        }
+        // Satisfies all requirements.
+        return deviationAcc;
+    }
+
+    const updateFrom = function(fx, fy, fb) {
+        const fi = fy * sizeX + fx;
+        const fil = borderToZ[fb] * sizeXY + fi;
+        const fscore = scores[fil];
+        template_loop: for (const template of templatesByStartBorder[fb]) {
+            const tx = fx + template.MovesX;
+            const ty = fy + template.MovesY;
+            const ti = ty * sizeX + tx;
+            if (tx < 0 || tx >= sizeX || ty < 0 || ty >= sizeY) {
+                continue template_loop;
+            }
+            // Most likely to fail. Check first.
+            if (deviations[ti] === MAX_DEVIATION) {
+                // End escapes bounds.
+                continue template_loop;
+            }
+
+            const templateScore = scoreTemplate(template, fx, fy);
+            if (templateScore === MAX_SCORE) {
+                continue template_loop;
+            }
+
+            const tscore = fscore + templateScore;
+            const tb = template.EndDir;
+            const til = borderToZ[tb] * sizeXY + ti;
+            if (tscore < scores[til]) {
+                scores[til] = tscore;
+                priorities.set(til, -tscore);
+            }
+        }
+        priorities.set(fil, -Infinity);
+    };
+
+    const sx = points[0].x;
+    const sy = points[0].y;
+    const si = sy * sizeX + sx;
+    const sb = info.borderNs[points[0].typeN][path.startDirN];
+    const sil = borderToZ[sb] * sizeXY + si;
+    {
+        scores[sil] = 0;
+        updateFrom(sx, sy, sb);
+        // Needed in case we loop back to the start.
+        scores[sil] = MAX_SCORE;
+    }
+    for (;;) {
+        const fil = priorities.getMaxIndex() | 0;
+        if (priorities.get(fil) === -Infinity) {
+            break;
+        }
+        const fz = (fil / sizeXY) | 0;
+        const fb = zToBorder[fz];
+        const fi = (fil % sizeXY) | 0;
+        const fy = (fi / sizeX) | 0;
+        const fx = (fi % sizeX) | 0;
+        updateFrom(fx, fy, fb);
+    }
+
+    const traceBackStep = function(tx, ty, tb) {
+        const ti = ty * sizeX + tx;
+        const til = borderToZ[tb] * sizeXY + ti;
+        const tscore = scores[til];
+        const candidates = [];
+        template_loop: for (const template of templatesByEndBorder[tb]) {
+            const fx = tx - template.MovesX;
+            const fy = ty - template.MovesY;
+            const fi = fy * sizeX + fx;
+            if (fx < 0 || fx >= sizeX || fy < 0 || fy >= sizeY) {
+                continue template_loop;
+            }
+            // Most likely to fail. Check first.
+            if (deviations[fi] === MAX_DEVIATION) {
+                // Start escapes bounds.
+                continue template_loop;
+            }
+
+            const templateScore = scoreTemplate(template, fx, fy);
+            if (templateScore === MAX_SCORE) {
+                continue template_loop;
+            }
+
+            const fscore = tscore - templateScore;
+            const fil = borderToZ[template.StartBorderN] * sizeXY + fi;
+            if (fscore === scores[fil]) {
+                candidates.push(template);
+            }
+        }
+        candidates.length >= 1 || die("Assertion failure");
+        const template = random.pick(candidates);
+        const fx = tx - template.MovesX;
+        const fy = ty - template.MovesY;
+        const templateInfo = info.Tileset.Templates[template.Name];
+        paintTemplate(tiles, tilesSize, fx - template.OffsetX + minPointX, fy - template.OffsetY + minPointY, templateInfo);
+        return {
+            x: fx,
+            y: fy,
+            b: template.StartBorderN,
+        };
+    };
+
+    // Trace back and update tiles
+    {
+        let tx = points[points.length-1].x;
+        let ty = points[points.length-1].y;
+        let tb = info.borderNs[points[points.length-1].typeN][path.endDirN];
+        let ti = ty * sizeX + tx;
+        let til = borderToZ[tb] * sizeXY + ti;
+        if (scores[til] === MAX_SCORE) {
+            die("Could not fit tiles for coastline");
+        }
+        let p = traceBackStep(tx, ty, tb);
+        // We previously set this to MAX_SCORE in case we were a loop. Reset it for getting back to the start.
+        scores[sil] = 0;
+        // No need to check direction. If that is an issue, I have bigger problems to worry about.
+        while (p.x !== sx || p.y !== sy) {
+            p = traceBackStep(p.x, p.y, p.b);
         }
     }
 }
@@ -1475,7 +1857,7 @@ function generateMap(params) {
     }
 
     let coastlines = detectCoastlines(elevation, size);
-    coastlines = tweakCoastlines(coastlines, size);
+    coastlines = coastlines.map(coastline => tweakPath(coastline, size));
     // { // DEBUG
     //     for (const coastline of coastlines) {
     //         coastline[0].debugColor = 'blue';
@@ -1583,7 +1965,7 @@ function generateMap(params) {
         }
     }
     for (const coastline of coastlines) {
-        tileCoastline(tiles, size, coastline, random, params);
+        tilePath(tiles, size, coastline, random, params);
     }
 
     // Assign missing indexes
@@ -1807,8 +2189,17 @@ fetch("temperat-info.json")
             template.SizeX = x | 0;
             template.SizeY = y | 0;
         }
-        const templatesByStartDir = [[], [], [], []];
-        const templatesByEndDir = [[], [], [], []];
+        // const templatesByStartDir = [[], [], [], [], [], [], [], []];
+        // const templatesByEndDir = [[], [], [], [], [], [], [], []];
+        info.typeNs = {
+            "Coastline": 0,
+        };
+        info.borderNs = [
+            [0, 1, 2, 3, 4, 5, 6, 7], // 1
+        ];
+        info.templatesByType = {
+            "Coastline": [],
+        };
         for (const templateName of Object.keys(info.TemplatePaths).toSorted()) {
             const template = info.TemplatePaths[templateName];
             template.Path = template.Path.map(p => ({x: p[0] | 0, y: p[1] | 0}));
@@ -1816,6 +2207,8 @@ fetch("temperat-info.json")
             template.Name = templateName;
             template.StartDir = letterToDirection(template.StartDir);
             template.EndDir = letterToDirection(template.EndDir);
+            template.StartBorderN = info.borderNs[info.typeNs[template.Type]][template.StartDir];
+            template.EndBorderN = info.borderNs[info.typeNs[template.Type]][template.EndDir];
             template.MovesX = template.Path[template.Path.length-1].x - template.Path[0].x;
             template.MovesY = template.Path[template.Path.length-1].y - template.Path[0].y;
             template.OffsetX = template.Path[0].x;
@@ -1823,11 +2216,12 @@ fetch("temperat-info.json")
             template.Progress = template.Path.length - 1;
             template.ProgressLow = Math.ceil(template.Progress / 2);
             template.ProgressHigh = Math.floor(template.Progress * 1.5);
-            templatesByStartDir[template.StartDir].push(template);
-            templatesByEndDir[template.EndDir].push(template);
+            info.templatesByType[template.Type].push(template);
+            // templatesByStartDir[template.StartDir].push(template);
+            // templatesByEndDir[template.EndDir].push(template);
             // Last point has no direction.
             for (let i = 0; i < template.PathND.length - 1; i++) {
-                template.PathND[i].d = calculateDirection(template.PathND[i], template.PathND[i+1]);
+                template.PathND[i].d = calculateDirectionPoints(template.PathND[i], template.PathND[i+1]);
             }
             template.PathND[template.PathND.length - 1].d = DIRECTION_NONE;
             template.RelPathND = template.PathND.map(p => ({
@@ -1838,8 +2232,8 @@ fetch("temperat-info.json")
                 dmr: 1 << (p.d ^ 2), // distance mask reverse
             }));
         }
-        info.templatesByStartDir = templatesByStartDir;
-        info.templatesByEndDir = templatesByEndDir;
+        // info.templatesByStartDir = templatesByStartDir;
+        // info.templatesByEndDir = templatesByEndDir;
 
         ready = true;
         generate();
