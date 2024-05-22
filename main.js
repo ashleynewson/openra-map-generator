@@ -21,6 +21,8 @@ function die(err) {
     throw new Error(err);
 }
 
+function breakpoint() {}
+
 function dump2d(label, data, w, h, points) {
     const canvas = document.createElement("canvas");
     canvas.width = w;
@@ -974,6 +976,7 @@ function detectCoastlines(elevation, size) {
         } while (x != sx || y != sy);
         coastlines.push({
             points,
+            type: "Coastline",
             permittedTemplates: info.templatesByType["Coastline"],
         });
     };
@@ -1035,7 +1038,9 @@ function tweakPath(path, size) {
     const lst = len - 1;
     const tweakedPath = Object.assign({}, path);
     // tweakedPath.permittedTemplates = path.permittedTemplates;
-    if (points[0].x === points[lst].x && points[0].y === points[lst].y) {
+    const isLoop = points[0].x === points[lst].x && points[0].y === points[lst].y;
+    tweakedPath.isLoop = isLoop;
+    if (isLoop) {
         // Closed loop. Find the longest straight
         // (nrlen excludes the repeated point at the end.)
         const nrlen = len - 1;
@@ -1138,6 +1143,13 @@ function calculateDirectionPoints(now, next) {
     const dx = next.x - now.x;
     const dy = next.y - now.y;
     return calculateDirectionXY(dx, dy);
+}
+
+function reverseDirection(direction) {
+    if (direction === DIRECTION_NONE) {
+        return DIRECTION_NONE;
+    }
+    return direction ^ 4;
 }
 
 function paintTemplate(tiles, size, px, py, template) {
@@ -1455,9 +1467,7 @@ function tilePath(tiles, tilesSize, path, random, params) {
     maxPointY += maxDeviation;
     const points = path.points.map(point => Object.assign({}, point, {x: point.x - minPointX, y: point.y - minPointY}));
 
-    const isLoop =
-          points[0].x === points[points.length-1].x &&
-          points[0].y === points[points.length-1].y;
+    const isLoop = path.isLoop;
 
     // grid points (not squares), so these are offset 0.5 from tile centers.
     const sizeX = 1 + maxPointX - minPointX;
@@ -1522,24 +1532,28 @@ function tilePath(tiles, tilesSize, path, random, params) {
                             gradientX[i] += directionX;
                             gradientY[i] += directionY;
                             if (x > minX) {
-                                // traversables[i] |= 1 << DIRECTION_L;
-                                traversables[i] |=
-                                    (1 << DIRECTION_LU) | (1 << DIRECTION_L) | (1 << DIRECTION_LD);
+                                traversables[i] |= 1 << DIRECTION_L;
                             }
                             if (x < maxX) {
-                                // traversables[i] |= 1 << DIRECTION_R;
-                                traversables[i] |=
-                                    (1 << DIRECTION_RD) | (1 << DIRECTION_R) | (1 << DIRECTION_RU);
+                                traversables[i] |= 1 << DIRECTION_R;
                             }
                             if (y > minY) {
-                                // traversables[i] |= 1 << DIRECTION_U;
-                                traversables[i] |=
-                                    (1 << DIRECTION_RU) | (1 << DIRECTION_U) | (1 << DIRECTION_LU);
+                                traversables[i] |= 1 << DIRECTION_U;
                             }
                             if (y < maxY) {
-                                // traversables[i] |= 1 << DIRECTION_D;
-                                traversables[i] |=
-                                    (1 << DIRECTION_LD) | (1 << DIRECTION_D) | (1 << DIRECTION_RD);
+                                traversables[i] |= 1 << DIRECTION_D;
+                            }
+                            if (x > minX && y > minY) {
+                                traversables[i] |= 1 << DIRECTION_LU;
+                            }
+                            if (x > minX && y < maxY) {
+                                traversables[i] |= 1 << DIRECTION_LD;
+                            }
+                            if (x > maxX && y > minY) {
+                                traversables[i] |= 1 << DIRECTION_RU;
+                            }
+                            if (x > maxX && y < maxY) {
+                                traversables[i] |= 1 << DIRECTION_RD;
                             }
                         }
                     }
@@ -1759,8 +1773,9 @@ function tilePath(tiles, tilesSize, path, random, params) {
         let ti = ty * sizeX + tx;
         let til = borderToZ[tb] * sizeXY + ti;
         if (scores[til] === MAX_SCORE) {
-            die("Could not fit tiles for coastline");
+            die("Could not fit tiles for path");
         }
+        console.log(`Path ${path.type}[${path.isLoop ? "looped " : ""}${path.points.length}] has error score ${scores[til]} (${scores[til] / path.points.length} per point)`);
         let p = traceBackStep(tx, ty, tb);
         // We previously set this to MAX_SCORE in case we were a loop. Reset it for getting back to the start.
         scores[sil] = 0;
@@ -2227,9 +2242,9 @@ fetch("temperat-info.json")
             template.RelPathND = template.PathND.map(p => ({
                 x: p.x - template.OffsetX,
                 y: p.y - template.OffsetY,
-                d: p.d, // distance
-                dm: 1 << p.d, // distance mask
-                dmr: 1 << (p.d ^ 2), // distance mask reverse
+                d: p.d, // direction
+                dm: 1 << p.d, // direction mask
+                dmr: 1 << reverseDirection(p.d), // direction mask reverse
             }));
         }
         // info.templatesByStartDir = templatesByStartDir;
