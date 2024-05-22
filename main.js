@@ -1170,277 +1170,6 @@ function paintTemplate(tiles, size, px, py, template) {
     }
 }
 
-function tileCoastline(tiles, tilesSize, coastline, random, params) {
-    let minPointX = Infinity;
-    let minPointY = Infinity;
-    let maxPointX = -Infinity;
-    let maxPointY = -Infinity;
-    for (const point of coastline) {
-        if (point.x < minPointX) {
-            minPointX = point.x;
-        }
-        if (point.y < minPointY) {
-            minPointY = point.y;
-        }
-        if (point.x > maxPointX) {
-            maxPointX = point.x;
-        }
-        if (point.y > maxPointY) {
-            maxPointY = point.y;
-        }
-    }
-    const maxDeviation = (params.minimumThickness - 1) >> 1;
-    minPointX -= maxDeviation;
-    minPointY -= maxDeviation;
-    maxPointX += maxDeviation;
-    maxPointY += maxDeviation;
-    coastline = coastline.map(point => ({x: point.x - minPointX, y: point.y - minPointY}));
-
-    const isLoop =
-          coastline[0].x === coastline[coastline.length-1].x &&
-          coastline[0].y === coastline[coastline.length-1].y;
-
-    // grid points (not squares)
-    const sizeX = 1 + maxPointX - minPointX;
-    const sizeY = 1 + maxPointY - minPointY;
-    const directions = new Uint8Array(sizeX * sizeY).fill(0);
-    const deviations = new Uint32Array(sizeX * sizeY).fill(0x7fffffff);
-    const traversables = new Uint8Array(sizeX * sizeY).fill(0);
-    for (let deviation = 0; deviation <= maxDeviation; deviation++) {
-        for (let pointI = 0; pointI < coastline.length; pointI++) {
-            const point = coastline[pointI];
-            let direction_mask;
-            if (pointI + 1 < coastline.length) {
-                const pointNext = coastline[pointI + 1];
-                direction_mask = 1 << calculateDirectionPoints(point, pointNext);
-            } else if (isLoop) {
-                break;
-            } else {
-                const pointPrev = coastline[pointI - 1];
-                direction_mask = 1 << calculateDirectionPoints(pointPrev, point);
-            }
-            const minX = point.x - deviation;
-            const minY = point.y - deviation;
-            const maxX = point.x + deviation;
-            const maxY = point.y + deviation;
-            for (let y = minY; y <= maxY; y++) {
-                for (let x = minX; x <= maxX; x++) {
-                    const i = y * sizeX + x;
-                    if (deviations[i] === 0x7fffffff) {
-                        deviations[i] = deviation;
-                    }
-                    directions[i] |= direction_mask;
-                    if (x > minX) {
-                        traversables[i] |= 1 << DIRECTION_L;
-                    }
-                    if (x < maxX) {
-                        traversables[i] |= 1 << DIRECTION_R;
-                    }
-                    if (y > minY) {
-                        traversables[i] |= 1 << DIRECTION_U;
-                    }
-                    if (y < maxY) {
-                        traversables[i] |= 1 << DIRECTION_D;
-                    }
-                }
-            }
-        }
-    }
-
-    const templatesByStartDir = info.templatesByStartDir;
-    const templatesByEndDir = info.templatesByEndDir;
-    const priorities = new PriorityArray(4 * sizeX * sizeY).fill(-Infinity);
-    const SCORE_MAX = 0x7fffffff; // Not 0xffffffff?
-    const scores = new Uint32Array(4 * sizeX * sizeY).fill(SCORE_MAX);
-
-    // Assumes both f and t are in the sizeX/sizeY bounds.
-    const scoreTemplate = function(template, fx, fy) {
-        let deviationAcc = 0;
-        let progressionAcc = 0;
-        const lastPointI = template.RelPathND.length - 1;
-        for (let pointI = 0; pointI <= lastPointI; pointI++) {
-            const point = template.RelPathND[pointI];
-            const px = fx + point.x;
-            const py = fy + point.y;
-            const pi = py * sizeX + px;
-            if (px < 0 || px >= sizeX || py < 0 || py >= sizeY) {
-                // Intermediate point escapes array bounds.
-                return SCORE_MAX;
-            }
-            if (pointI < lastPointI) {
-                if ((traversables[pi] & point.dm) === 0) {
-                    // Next point escapes traversable area.
-                    return SCORE_MAX;
-                }
-                if ((directions[pi] & point.dm) === point.dm) {
-                    progressionAcc++;
-                } else if ((directions[pi] & point.dmr) === point.dmr) {
-                    progressionAcc--;
-                }
-            }
-            if (pointI > 0) {
-                // Don't double-count the template's path's starts and ends
-                deviationAcc += deviations[pi];
-            }
-        }
-        if (progressionAcc < 0) {
-            // It's moved backwards
-            return SCORE_MAX;
-        }
-        // Satisfies all requirements.
-        return deviationAcc;
-    }
-
-    const updateFrom = function(fx, fy, fd) {
-        const fi = fy * sizeX + fx;
-        const fid = 4 * fi + fd;
-        const fscore = scores[fid];
-        template_loop: for (const template of templatesByStartDir[fd]) {
-            const tx = fx + template.MovesX;
-            const ty = fy + template.MovesY;
-            const ti = ty * sizeX + tx;
-            if (tx < 0 || tx >= sizeX || ty < 0 || ty >= sizeY) {
-                continue template_loop;
-            }
-            // Most likely to fail. Check first.
-            if (deviations[ti] === 0x7fffffff) {
-                // End escapes bounds.
-                continue template_loop;
-            }
-
-            const templateScore = scoreTemplate(template, fx, fy);
-            if (templateScore === SCORE_MAX) {
-                continue template_loop;
-            }
-
-            const tscore = fscore + templateScore;
-            const tid = ti * 4 + template.EndDir;
-            if (tscore < scores[tid]) {
-                scores[tid] = tscore;
-                priorities.set(tid, -tscore);
-            }
-        }
-        priorities.set(fid, -Infinity);
-    };
-
-    const sx = coastline[0].x;
-    const sy = coastline[0].y;
-    const si = sy * sizeX + sx;
-    const sd = calculateDirectionPoints(coastline[0], coastline[1]);
-    const sid = 4 * si + sd
-    {
-        scores[sid] = 0;
-        updateFrom(sx, sy, sd);
-        // Needed in case we loop back to the start.
-        scores[sid] = SCORE_MAX;
-    }
-    for (;;) {
-        const fid = priorities.getMaxIndex() | 0;
-        if (priorities.get(fid) === -Infinity) {
-            break;
-        }
-        const fd = fid & 0b11;
-        const fi = fid >> 2;
-        const fy = (fi / sizeX) | 0;
-        const fx = (fi % sizeX) | 0;
-        updateFrom(fx, fy, fd);
-    }
-
-    const traceBackStep = function(tx, ty, td) {
-        const ti = ty * sizeX + tx;
-        const tid = 4 * ti + td;
-        const tscore = scores[tid];
-        const candidates = [];
-        template_loop: for (const template of templatesByEndDir[td]) {
-            const fx = tx - template.MovesX;
-            const fy = ty - template.MovesY;
-            const fi = fy * sizeX + fx;
-            if (fx < 0 || fx >= sizeX || fy < 0 || fy >= sizeY) {
-                continue template_loop;
-            }
-            // Most likely to fail. Check first.
-            if (deviations[fi] === 0x7fffffff) {
-                // Start escapes bounds.
-                continue template_loop;
-            }
-
-            const templateScore = scoreTemplate(template, fx, fy);
-            if (templateScore === SCORE_MAX) {
-                continue template_loop;
-            }
-
-            const fscore = tscore - templateScore;
-            const fid = fi * 4 + template.StartDir;
-            if (fscore === scores[fid]) {
-                candidates.push(template);
-            }
-        }
-        candidates.length >= 1 || die("Assertion failure");
-        const template = random.pick(candidates);
-        const fx = tx - template.MovesX;
-        const fy = ty - template.MovesY;
-        const templateInfo = info.Tileset.Templates[template.Name];
-        // TODO: This may leave small gaps if the best path deviates from the
-        // ideal path. Fill these with the appropriate tile, which should
-        // ultimately be specified in the path.
-        paintTemplate(tiles, tilesSize, fx - template.OffsetX + minPointX, fy - template.OffsetY + minPointY, templateInfo);
-        return {
-            x: fx,
-            y: fy,
-            d: template.StartDir,
-        };
-    };
-
-    // { // DEBUG
-    //     const debugArray = new Int32Array(sizeX * sizeY);
-    //     for (let d = 0; d < 4; d++) {
-    //         for (let i = 0; i < debugArray.length; i++) {
-    //             debugArray[i] = scores[i * 4 + d];
-    //             if (debugArray[i] === SCORE_MAX) debugArray[i] = -1;
-    //         }
-    //         dump2d(`d${d}`, debugArray, sizeX, sizeY);
-    //     }
-    //     for (let i = 0; i < debugArray.length; i++) {
-    //         debugArray[i] = Math.min(scores[i * 4], scores[i * 4 + 1], scores[i * 4 + 2], scores[i * 4 + 3]);
-    //         if (debugArray[i] === SCORE_MAX) debugArray[i] = -1;
-    //     }
-    //     dump2d("max", debugArray, sizeX, sizeY);
-    //     dump2d("deviations", deviations.map(x => (x === SCORE_MAX ? 0 : x)), sizeX, sizeY);
-    //     dump2d("directionsR", directions.map(x => (x & (1 << DIRECTION_R))), sizeX, sizeY);
-    //     dump2d("directionsD", directions.map(x => (x & (1 << DIRECTION_D))), sizeX, sizeY);
-    //     dump2d("directionsL", directions.map(x => (x & (1 << DIRECTION_L))), sizeX, sizeY);
-    //     dump2d("directionsU", directions.map(x => (x & (1 << DIRECTION_U))), sizeX, sizeY);
-    //     dump2d("traversablesR", traversables.map(x => (x & (1 << DIRECTION_R))), sizeX, sizeY);
-    //     dump2d("traversablesD", traversables.map(x => (x & (1 << DIRECTION_D))), sizeX, sizeY);
-    //     dump2d("traversablesL", traversables.map(x => (x & (1 << DIRECTION_L))), sizeX, sizeY);
-    //     dump2d("traversablesU", traversables.map(x => (x & (1 << DIRECTION_U))), sizeX, sizeY);
-    // }
-
-    // Trace back and update tiles
-    {
-        let tx = coastline[coastline.length-1].x;
-        let ty = coastline[coastline.length-1].y;
-        let td;
-        if (isLoop) {
-            td = calculateDirectionPoints(coastline[0], coastline[1]);
-        } else {
-            td = calculateDirectionPoints(coastline[coastline.length-2], coastline[coastline.length-1]);
-        }
-        let ti = ty * sizeX + tx;
-        let tid = 4 * ti + td;
-        if (scores[tid] === SCORE_MAX) {
-            die("Could not fit tiles for coastline");
-        }
-        let p = traceBackStep(tx, ty, td);
-        // We set this to SCORE_MAX in case we were a loop. Reset it for getting back to the start.
-        scores[sid] = 0;
-        // No need to check direction. If that is an issue, I have bigger problems to worry about.
-        while (p.x !== sx || p.y !== sy) {
-            p = traceBackStep(p.x, p.y, p.d);
-        }
-    }
-}
-
 function tilePath(tiles, tilesSize, path, random, params) {
     let minPointX = Infinity;
     let minPointY = Infinity;
@@ -1473,10 +1202,6 @@ function tilePath(tiles, tilesSize, path, random, params) {
     const sizeX = 1 + maxPointX - minPointX;
     const sizeY = 1 + maxPointY - minPointY;
     const sizeXY = sizeX * sizeY;
-    // // An interpolated measurement/estimate of the progress through a
-    // // path for points surrounding the path. Measured in rough number
-    // // of path steps.
-    // const progressions = new Float32Array(sizeX * sizeY).fill(0);
 
     const MAX_DEVIATION = 0xffffffff;
     // Bit masks of 8-angle directions which are considered a positive progress
@@ -1509,11 +1234,6 @@ function tilePath(tiles, tilesSize, path, random, params) {
                 directionX += point.x - points[pointPrevI].x;
                 directionY += point.y - points[pointPrevI].y;
             }
-            // const direction = calculateDirectionXY(directionX, directionY);
-            // //            Direction: 0123456701234567
-            // //                        UUU DDD UUU DDD
-            // //                        R LLL RRR LLL R
-            // const direction_mask = (0b100000111000001 >> (7 - direction)) & 0b11111111;
             for (let deviation = 0; deviation <= maxDeviation; deviation++) {
                 const minX = point.x - deviation;
                 const minY = point.y - deviation;
@@ -1525,9 +1245,6 @@ function tilePath(tiles, tilesSize, path, random, params) {
                         if (deviation < deviations[i]) {
                             deviations[i] = deviation;
                         }
-                        // if (directions[i] === 0) {
-                        //     directions[i] = direction_mask;
-                        // }
                         if (deviation === maxDeviation) {
                             gradientX[i] += directionX;
                             gradientY[i] += directionY;
@@ -1560,7 +1277,7 @@ function tilePath(tiles, tilesSize, path, random, params) {
                 }
             }
         }
-        // Untested/unproven
+        // Probational
         for (let i = 0; i < sizeXY; i++) {
             if (gradientX[i] === 0 && gradientY[i] === 0) {
                 directions[i] = 0;
@@ -1578,15 +1295,12 @@ function tilePath(tiles, tilesSize, path, random, params) {
     const templatesByStartBorder = [];
     const templatesByEndBorder = [];
     const MAX_SCORE = 0xffffffff;
-    // const priorities = [];
-    // const scores = [];
 
     // Z refers to the "layer", mapped from a "border".
     // i  =              y * SizeX + x // i does not dictate a layer.
     // il = z * SizeXY + y * SizeX + x // il is for a specific layer.
     const borderToZ = [];
     const zToBorder = [];
-    // const borders = [];
 
     {
         const assignForBorder = function(border) {
@@ -1597,30 +1311,14 @@ function tilePath(tiles, tilesSize, path, random, params) {
             zToBorder.push(border);
             templatesByStartBorder[border] = [];
             templatesByEndBorder[border] = [];
-            // borders.push(border);
-            // priorities[border] = new PriorityArray(sizeXY).fill(-Infinity);
-            // scores[border] = new Uint32Array(sizeXY).fill(MAX_SCORE);
         };
         for (const template of templates) {
             assignForBorder(template.StartBorderN);
             assignForBorder(template.EndBorderN);
         }
         for (const template of templates) {
-            // if (typeof(templatesByStartBorder[template.StartBorderN] === "undefined")) {
-            //     templatesByStartBorder[template.StartBorderN] = [];
-            // }
-            // if (typeof(templatesByEndBorder[template.EndBorderN] === "undefined")) {
-            //     templatesByEndBorder[template.EndBorderN] = [];
-            // }
             templatesByStartBorder[template.StartBorderN].push(template);
             templatesByEndBorder[template.EndBorderN].push(template);
-            // if (typeof(borderToZ[template.StartBorderN]) === "undefined") {
-            //     borderToZ[template.StartBorderN] = sizeXYZ;
-            // }
-            // if (typeof(borderToZ[template.EndBorderN]) === "undefined") {
-            //     borderToZ[template.EndBorderN] = sizeXYZ;
-            // }
-            // sizeXYZ += sizeXY;
         }
     }
 
