@@ -1749,69 +1749,17 @@ export function generate() {
 
     const canvas = document.getElementById("canvas");
 
-    const zoom = document.getElementById("zoom").value | 0;
-    const seed = document.getElementById("seed").value | 0;
-    const size = document.getElementById("size").value | 0;
-    const water = document.getElementById("water").value;
-    const terrainSmoothing = document.getElementById("terrain-smoothing").value | 0;
-    const smoothingThreshold = document.getElementById("smoothing-threshold").value;
-    const minimumThickness = document.getElementById("minimum-thickness").value | 0;
-    const wavelengthScale = document.getElementById("wavelength-scale").value;
-    const rotations = document.getElementById("rotations").value | 0;
-    const mirror = document.getElementById("mirror").value | 0;
-    const createEntities = document.getElementById("create-entities").checked;
-    const players_per_rotation = document.getElementById("players-per-rotation").value | 0;
-    const centralReservation = document.getElementById("central-reservation").value | 0;
-    const spawnRegionSize = document.getElementById("spawn-region-size").value | 0;
-    const spawnBuildSize = document.getElementById("spawn-build-size").value | 0;
-    const spawnMines = document.getElementById("spawn-mines").value | 0;
-    const spawnOre = document.getElementById("spawn-ore").value | 0;
-    const maxExpansions = document.getElementById("max-expansions").value | 0;
-    const minExpansionSize = document.getElementById("min-expansion-size").value | 0;
-    const maxExpansionSize = document.getElementById("max-expansion-size").value | 0;
-    const expansionInner = document.getElementById("expansion-inner").value | 0;
-    const expansionBorder = document.getElementById("expansion-border").value | 0;
-    const expansionMines = document.getElementById("expansion-mines").value;
-    const expansionOre = document.getElementById("expansion-ore").value | 0;
-    const rockWeight = document.getElementById("rock-weight").value;
-    const rockSize = document.getElementById("rock-size").value | 0;
-    const maxBuildings = document.getElementById("max-buildings").value | 0;
-
     const saveBin = document.getElementById("saveBin");
 
-    const map = generateMap({
-        seed,
-        size,
-        water,
-        terrainSmoothing,
-        smoothingThreshold,
-        minimumThickness,
-        wavelengthScale,
-        rotations,
-        mirror,
-        createEntities,
-        players_per_rotation,
-        centralReservation,
-        spawnRegionSize,
-        spawnBuildSize,
-        spawnMines,
-        spawnOre,
-        maxExpansions,
-        minExpansionSize,
-        maxExpansionSize,
-        expansionInner,
-        expansionBorder,
-        expansionMines,
-        expansionOre,
-        rockWeight,
-        rockSize,
-        maxBuildings,
-    });
+    const settings = readSettings();
+
+    const map = generateMap(settings);
     window.map = map;
 
-    document.getElementById("description").textContent =`
-Seed: ${map.random.seed}
-`;
+    document.getElementById("description").textContent = JSON.stringify(settings, null, 2);
+
+    const size = settings.size;
+    const zoom = settings.zoom;
 
     canvas.width = size;
     canvas.height = size;
@@ -1834,8 +1782,140 @@ Seed: ${map.random.seed}
     saveBin.href = URL.createObjectURL(blob);
 }
 
+const settingsMetadata = {
+    zoom: {init: 4, type: "int"},
+    seed: {init: -2024525772, type: "int"},
+    size: {init: 96, type: "int"},
+    water: {init: 0.5, type: "float"},
+    terrainSmoothing: {init: 4, type: "int"},
+    smoothingThreshold: {init: 0.33, type: "float"},
+    minimumThickness: {init: 5, type: "int"},
+    wavelengthScale: {init: 1.0, type: "float"},
+    rotations: {init: 2, type: "int"},
+    mirror: {init: 0, type: "int"},
+    createEntities: {init: false, type: "bool"},
+    playersPerRotation: {init: 1, type: "int"},
+    startingMines: {init: 3, type: "int"},
+    startingOre: {init: 3, type: "int"},
+    centralReservation: {init: 16, type: "int"},
+    spawnRegionSize: {init: 8, type: "int"},
+    spawnBuildSize: {init: 4, type: "int"},
+    spawnMines: {init: 3, type: "int"},
+    spawnOre: {init: 3, type: "int"},
+    maxExpansions: {init: 4, type: "int"},
+    minExpansionSize: {init: 2, type: "int"},
+    maxExpansionSize: {init: 12, type: "int"},
+    expansionInner: {init: 4, type: "int"},
+    expansionBorder: {init: 4, type: "int"},
+    expansionMines: {init: 0.02, type: "float"},
+    expansionOre: {init: 5, type: "int"},
+    rockWeight: {init: 0.1, type: "float"},
+    rockSize: {init: 4, type: "int"},
+    maxBuildings: {init: 3, type: "int"},
+};
+
+function camelToKebab(str) {
+    return str.replaceAll(/(?=[A-Z])/g, '-').toLowerCase();
+}
+
+export function readSettings() {
+    const settings = {};
+    for (const settingName of Object.keys(settingsMetadata)) {
+        const type = settingsMetadata[settingName].type;
+        const elementName = camelToKebab(settingName);
+        const el = document.getElementById(elementName) ?? die("Missing setting element ${elementName}");
+        let value;
+        switch (type) {
+        case "int":
+            value = el.value | 0;
+            break;
+        case "float":
+            value = Number(el.value);
+            break;
+        case "bool":
+            value = el.checked;
+            break;
+        default:
+            die(`Unknown type ${type}`);
+        }
+        settings[settingName] = value;
+    }
+    return settings;
+}
+
+// Settings which aren't supplied are set to the default (init) values.
+export function writeSettings(settings) {
+    for (const settingName of Object.keys(settingsMetadata)) {
+        const type = settingsMetadata[settingName].type;
+        const elementName = camelToKebab(settingName);
+        const el = document.getElementById(elementName) ?? die("Missing setting element ${elementName}");
+        const value = settings[settingName] ?? settingsMetadata[settingName].init;
+        switch (type) {
+        case "int":
+        case "float":
+            el.value = value;
+            break;
+        case "bool":
+            el.checked = value;
+            break;
+        default:
+            die(`Unknown type ${type}`);
+        }
+    }
+}
+
+export function configurePreset() {
+    let preset = document.getElementById("preset").value;
+    document.getElementById("preset").value = "placeholder";
+    if (preset === "random") {
+        const randomPresets = [
+            "basic",
+            "plains",
+            "wetlands",
+            "puddles",
+            "oceanic",
+        ];
+        preset = randomPresets[(Math.random() * randomPresets.length) | 0];
+    }
+
+    const oldSettings = readSettings();
+    const settings = {
+        zoom: oldSettings.zoom,
+        seed: oldSettings.seed,
+        size: oldSettings.size,
+    };
+    switch(preset) {
+    case "placeholder":
+        return;
+    case "---":
+        return;
+    case "basic":
+        break;
+    case "plains":
+        settings.water = 0.0;
+        settings.wavelengthScale = 0.2;
+        break;
+    case "wetlands":
+        settings.water = 0.5;
+        settings.wavelengthScale = 0.2;
+        break;
+    case "puddles":
+        settings.water = 0.2;
+        settings.wavelengthScale = 0.2;
+        break;
+    case "oceanic":
+        settings.water = 0.8;
+        settings.wavelengthScale = 0.2;
+        break;
+    default:
+        die(`Unknown preset ${preset}`);
+    }
+    writeSettings(settings);
+}
+
 
 window.generate = generate;
+window.configurePreset = configurePreset;
 
 window.randomSeed = function() {
     // This isn't great.
@@ -1949,5 +2029,6 @@ fetch("temperat-info.json")
         // info.templatesByEndDir = templatesByEndDir;
 
         ready = true;
+        writeSettings({});
         generate();
     });
