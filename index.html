@@ -42,6 +42,7 @@
     <input id="mirror"><label>Mirror direction (0 (none), 1, 2, 3, 4)</label><br>
     <!-- <input id="minFeature" value="12"><label>Minimum feature size</label><br> -->
     <input id="create-entities" type="checkbox"><label>Create entities</label><br>
+    <input id="enforce-symmetry" type="checkbox"><label>Enforce symmetry of terrain availability with entities</label><br>
     <p>Per-rotation settings:</p>
     <input id="players-per-rotation"><label>Players per rotation</label><br>
     <input id="starting-mines"><label>Starting mines</label><br>
@@ -64,7 +65,8 @@
     <input id="rock-weight"><label>Rock weight</label><br>
     <input id="rock-size"><label>Rock size</label><br>
     <input id="max-buildings"><label>Max neutral building count</label><br>
-    <a id="saveBin" href='#'>Save map.bin</a><br>
+    <a id="saveBin" download="map.bin" href='#'>Save map.bin</a><br>
+    <a id="saveYaml" download="map.yaml" href='#'>Save map.yaml</a><br>
     <pre id="description"></pre>
     <hr>
     <div id="debug"></div>

@@ -130,6 +130,23 @@ function letterToDirection(letter) {
     }
 }
 
+function mirrorXY(x, y, size, mirror) {
+    switch (mirror) {
+    case 0:
+        die("avoid calling mirrorXY for mirror === 0");
+    case 1:
+        return [           x, size - 1 - y];
+    case 2:
+        return [           y,            x];
+    case 3:
+        return [size - 1 - x,            y];
+    case 4:
+        return [size - 1 - y, size - 1 - x];
+    default:
+        die("bad mirror direction");
+    }
+}
+
 // Perlin noise may not be the best. It is not isotropic. (It has grid-related artifacts.)
 function perlinNoise2d(random, size) {
     const noise = new Float32Array(size * size).fill(0.0);
@@ -291,28 +308,7 @@ function fractalNoise2dWithSymetry(params) {
         noise = new Float32Array(size * size);
         for (let y = 0; y < size; y++) {
             for (let x = 0; x < size; x++) {
-                let tx;
-                let ty;
-                switch (params.mirror) {
-                case 1:
-                    tx = x;
-                    ty = size - 1 - y;
-                    break;
-                case 2:
-                    tx = y;
-                    ty = x;
-                    break;
-                case 3:
-                    tx = size - 1 - x;
-                    ty = y;
-                    break;
-                case 4:
-                    tx = size - 1 - y;
-                    ty = size - 1 - x;
-                    break;
-                default:
-                    die("bad mirror direction");
-                }
+                const [tx, ty] = mirrorXY(x, y, size, params.mirror);
                 noise[y * size + x] = unmirrored[y * size + x] + unmirrored[ty * size + tx];
             }
         }
@@ -462,28 +458,7 @@ function rotateAndMirror(originals, size, rotations, mirror) {
             projections.push(Object.assign({}, original, {x: projX, y: projY, original: original}));
 
             if (mirror ?? 0 !== 0) {
-                let mx;
-                let my;
-                switch (mirror) {
-                case 1:
-                    mx = projX;
-                    my = size - 1 - projY;
-                    break;
-                case 2:
-                    mx = projY;
-                    my = projX;
-                    break;
-                case 3:
-                    mx = size - 1 - projX;
-                    my = projY;
-                    break;
-                case 4:
-                    mx = size - 1 - projY;
-                    my = size - 1 - projX;
-                    break;
-                default:
-                    die("bad mirror direction");
-                }
+                const [mx, my] = mirrorXY(projX, projY, size, mirror);
                 projections.push(Object.assign({}, original, {x: mx, y: my, original: original}));
             }
         }
@@ -1681,6 +1656,52 @@ function generateMap(params) {
         tilePath(tiles, size, coastline, random, params);
     }
 
+    if (params.enforceSymmetry) {
+        // const equitability = new Uint8Array(size * size).fill(1);
+        const checkPoint = function(x, y, base) {
+            const i = y * size + x;
+            return codeMap[tiles[i]].Type === base;
+        }
+        const checkRotatedPoints = function(x, y, base) {
+            switch (params.rotations) {
+            case 1:
+                return checkPoint(x, y, base);
+            case 2:
+                return (
+                    checkPoint(           x,            y, base) &&
+                    checkPoint(size - 1 - x, size - 1 - y, base)
+                );
+            case 4:
+                return (
+                    checkPoint(           x,            y, base) &&
+                    checkPoint(size - 1 - y,            x, base) &&
+                    checkPoint(size - 1 - x, size - 1 - y, base) &&
+                    checkPoint(           y, size - 1 - x, base)
+                );
+            default:
+                die("cannot enforce symmetry for rotations other than 1, 2, or 4");
+            }
+        }
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                const i = y * size + x;
+                const base = codeMap[tiles[i]].Type;
+                let equitable = checkRotatedPoints(x, y, base);
+                if (params.mirror !== 0) {
+                    equitable &&= checkRotatedPoints(...mirrorXY(x, y, size, params.mirror), base);
+                }
+                if (!equitable) {
+                    entities.push({
+                        owner: "Neutral",
+                        x,
+                        y,
+                        type: "t01",
+                    });
+                }
+            }
+        }
+    }
+
     // Assign missing indexes
     for (let n = 0; n < tiles.length; n++) {
         if (codeMap[tiles[n]].Codes.length > 1) {
@@ -1739,6 +1760,44 @@ function generateMap(params) {
         }
     }
 
+    // OpenRA's yaml isn't proper YAML - it's something weird and
+    // specific to OpenRA called MiniYAML. So, I can't do something
+    // normal and have to dump it out myself...
+    map.yaml =
+`MapFormat: 12
+RequiresMod: ra
+Title: Random Map
+Author: OpenRA Random Map Generator Prototype
+Tileset: TEMPERAT
+MapSize: ${size+2},${size+2}
+Bounds: 1,1,${size},${size}
+Visibility: Lobby
+Categories: Conquest
+
+Players:
+\tPlayerReference@Neutral:
+\t\tName: Neutral
+\t\tOwnsWorld: True
+\t\tNonCombatant: True
+\t\tFaction: england
+\tPlayerReference@Creeps:
+\t\tName: Creeps
+\t\tNonCombatant: True
+\t\tFaction: england
+
+Actors:
+`;
+    {
+        let num = 0;
+        for (const entity of entities) {
+            map.yaml +=
+`\tActor${num++}: ${entity.type}
+\t\tOwner: ${entity.owner}
+\t\tLocation: ${entity.x},${entity.y}
+`;
+        }
+    }
+
     return map;
 }
 
@@ -1750,6 +1809,7 @@ export function generate() {
     const canvas = document.getElementById("canvas");
 
     const saveBin = document.getElementById("saveBin");
+    const saveYaml = document.getElementById("saveYaml");
 
     const settings = readSettings();
 
@@ -1778,8 +1838,14 @@ export function generate() {
         }
     }
 
-    const blob = new Blob([map.bin.data], {type: 'application/octet-stream'});
-    saveBin.href = URL.createObjectURL(blob);
+    {
+        const blob = new Blob([map.bin.data], {type: 'application/octet-stream'});
+        saveBin.href = URL.createObjectURL(blob);
+    }
+    {
+        const blob = new Blob([map.yaml], {type: 'application/octet-stream'});
+        saveYaml.href = URL.createObjectURL(blob);
+    }
 }
 
 const settingsMetadata = {
@@ -1794,6 +1860,7 @@ const settingsMetadata = {
     rotations: {init: 2, type: "int"},
     mirror: {init: 0, type: "int"},
     createEntities: {init: false, type: "bool"},
+    enforceSymmetry: {init: true, type: "bool"},
     playersPerRotation: {init: 1, type: "int"},
     startingMines: {init: 3, type: "int"},
     startingOre: {init: 3, type: "int"},
