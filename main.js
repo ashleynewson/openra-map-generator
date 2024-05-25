@@ -1899,6 +1899,10 @@ export function configurePreset() {
         settings.water = 0.5;
         settings.wavelengthScale = 0.2;
         break;
+    case "wetlands-narrow":
+        settings.water = 0.5;
+        settings.wavelengthScale = 0.05;
+        break;
     case "puddles":
         settings.water = 0.2;
         settings.wavelengthScale = 0.2;
