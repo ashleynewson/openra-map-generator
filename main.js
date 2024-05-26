@@ -1555,6 +1555,8 @@ function generateMap(params) {
     // }
 
     const tiles = new Array(size * size);
+    const resources = new Uint8Array(size * size);
+    const resourceDensities = new Uint8Array(size * size);
 
     for (let n = 0; n < tiles.length; n++) {
         if (elevation[n] >= 0) {
@@ -1674,9 +1676,38 @@ function generateMap(params) {
             }
         }
 
+        for (const zone of zones) {
+            switch (zone.type) {
+            case "mine":
+                entities.push({
+                    type: "mine",
+                    owner: "Neutral",
+                    x: zone.x,
+                    y: zone.y,
+                });
+                reserveCircleInPlace(resources, size, zone.x, zone.y, zone.radius, 1);
+                // Density seems to be a constant in map format
+                reserveCircleInPlace(resourceDensities, size, zone.x, zone.y, zone.radius, 12);
+                break;
+            case "gmine":
+                entities.push({
+                    type: "gmine",
+                    owner: "Neutral",
+                    x: zone.x,
+                    y: zone.y,
+                });
+                reserveCircleInPlace(resources, size, zone.x, zone.y, zone.radius, 2);
+                // Density seems to be a constant in map format
+                reserveCircleInPlace(resourceDensities, size, zone.x, zone.y, zone.radius, 3);
+                break;
+            // Default ignore
+            }
+        }
+
         // Debug output
         dump2d("zones", zoneable.map(x=>(x>0?1:0)), size, size, zones);
         dump2d("entities", zoneable.map(x=>(x>0?1:0)), size, size, entities);
+        dump2d("resources", resources, size, size);
     }
 
     if (params.enforceSymmetry) {
@@ -1738,6 +1769,8 @@ function generateMap(params) {
         elevation,
         tiles: tiles,
         types: Array(size * size),
+        resources,
+        resourceDensities,
         bin: {},
         spawns: [],
     };
@@ -1758,6 +1791,7 @@ function generateMap(params) {
     writeU32(map.bin.data, 5, map.bin.u32tileOffset);
     writeU32(map.bin.data, 9, map.bin.u32heightMapOffset);
     writeU32(map.bin.data, 13, map.bin.u32resourcesOffset);
+    // Clear map data to empty grass (including out-of-bounds area.
     for (let n = 0; n < map.bin.gridSize; n++) {
         writeU16(map.bin.data, map.bin.u32tileOffset + n * 3, 255 /* Grass */);
         writeU8(map.bin.data, map.bin.u32tileOffset + n * 3 + 2, 0 /* Index 0 */);
@@ -1776,10 +1810,14 @@ function generateMap(params) {
             const i = ti[2] | 0;
             map.types[n] = codeMap[map.tiles[n]].Type;
 
+            // +1 for x and y to account for the out-of-bounds area.
             const dataGridN = (x + 1) * map.bin.u16width + (y + 1);
             const dataTileOffset = map.bin.u32tileOffset + dataGridN * 3;
-            writeU16(map.bin.data, dataTileOffset, t /* Grass */);
-            writeU8(map.bin.data, dataTileOffset + 2, i /* Index 0 */);
+            writeU16(map.bin.data, dataTileOffset, t);
+            writeU8(map.bin.data, dataTileOffset + 2, i);
+            const dataResourceOffset = map.bin.u32resourcesOffset + dataGridN * 2;
+            writeU8(map.bin.data, dataResourceOffset, map.resources[n]);
+            writeU8(map.bin.data, dataResourceOffset + 1, map.resourceDensities[n]);
         }
     }
 
@@ -1829,10 +1867,11 @@ Players:
             entity.owner ?? die("Entity is missing owner");
             entity.x ?? die("Entity is missing location");
             entity.y ?? die("Entity is missing location");
+            // +1 to x and y to compensate for out-of-bounds
             map.yaml +=
 `\tActor${num++}: ${entity.type}
 \t\tOwner: ${entity.owner}
-\t\tLocation: ${entity.x},${entity.y}
+\t\tLocation: ${entity.x + 1},${entity.y + 1}
 `;
         }
     }
@@ -1869,9 +1908,25 @@ export function generate() {
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, size, size);
 
+    // Generate preview
     for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
-            ctx.fillStyle = terrainColor(map.types[y * size + x]);
+            const i = y * size + x;
+            if (map.resources[i] === 0) {
+                ctx.fillStyle = terrainColor(map.types[i]);
+            } else {
+                switch (map.resources[i]) {
+                case 1:
+                    ctx.fillStyle = "#948060";
+                    break;
+                case 2:
+                    ctx.fillStyle = "#8470ff";
+                    break;
+                default:
+                    ctx.fillStyle = "black";
+                    break;
+                }
+            }
             // ctx.fillStyle = "rgb(0, "+(map.elevation[y * size + x]*5000+128)+", 0)";
             ctx.fillRect(x, y, 1, 1);
         }
