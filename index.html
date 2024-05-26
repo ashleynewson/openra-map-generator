@@ -9,10 +9,21 @@
     </style>
   </head>
   <body>
+    <h1>OpenRA Random Map Generator Prototype</h2>
+    <p>Copyright Ashley Newson 2024.</p>
+    <input id="preview-size" type="range" min="64" value="512" max="1024" step="64" onchange="javascript:resizePreview()"><label>Preview size</label><br>
     <div>
       <canvas id="canvas" width="64" height="64"></canvas>
     </div>
-    <input id="zoom" value="4"><label>Preview zoom</label><br>
+    <script>
+      function resizePreview() {
+          const canvas = document.getElementById("canvas");
+          const previewSize = document.getElementById("preview-size").value;
+          canvas.style.width = `${previewSize}px`;
+          canvas.style.height = `${previewSize}px`;
+      }
+      resizePreview();
+    </script>
     <button onclick="javascript:generate()">Generate</button>
     <button onclick="javascript:randomSeed();generate();">Generate with random seed</button>
     <select id="preset" onchange="javascript:configurePreset();randomSeed();generate();">

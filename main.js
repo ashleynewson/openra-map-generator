@@ -1898,12 +1898,9 @@ export function generate() {
     document.getElementById("description").textContent = JSON.stringify(settings, null, 2);
 
     const size = settings.size;
-    const zoom = settings.zoom;
 
     canvas.width = size;
     canvas.height = size;
-    canvas.style.width = size * zoom;
-    canvas.style.height = size * zoom;
 
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "black";
@@ -1953,7 +1950,6 @@ export function generate() {
 }
 
 const settingsMetadata = {
-    zoom: {init: 4, type: "int"},
     seed: {init: -2024525772, type: "int"},
     size: {init: 96, type: "int"},
     water: {init: 0.5, type: "float"},
@@ -2051,7 +2047,6 @@ export function configurePreset() {
 
     const oldSettings = readSettings();
     const settings = {
-        zoom: oldSettings.zoom,
         seed: oldSettings.seed,
         size: oldSettings.size,
     };
