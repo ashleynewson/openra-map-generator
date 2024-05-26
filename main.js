@@ -1947,6 +1947,9 @@ export function generate() {
         const blob = new Blob([map.yaml], {type: 'application/octet-stream'});
         saveYaml.href = URL.createObjectURL(blob);
     }
+    {
+        savePng.href = canvas.toDataURL();
+    }
 }
 
 const settingsMetadata = {

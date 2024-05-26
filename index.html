@@ -12,6 +12,10 @@
     <h1>OpenRA Random Map Generator Prototype</h2>
     <p>Copyright Ashley Newson 2024.</p>
     <input id="preview-size" type="range" min="64" value="512" max="1024" step="64" onchange="javascript:resizePreview()"><label>Preview size</label><br>
+    <a id="saveBin" download="map.bin" href='#'>Save map.bin</a>
+    <a id="saveYaml" download="map.yaml" href='#'>Save map.yaml</a>
+    <a id="savePng" download="map.png" href='#'>Save map.png</a>
+    <br>
     <div>
       <canvas id="canvas" width="64" height="64"></canvas>
     </div>
@@ -76,8 +80,6 @@
     <input id="rock-weight"><label>Rock weight</label><br>
     <input id="rock-size"><label>Rock size</label><br>
     <input id="max-buildings"><label>Max neutral building count</label><br>
-    <a id="saveBin" download="map.bin" href='#'>Save map.bin</a><br>
-    <a id="saveYaml" download="map.yaml" href='#'>Save map.yaml</a><br>
     <pre id="description"></pre>
     <hr>
     <div id="debug"></div>
