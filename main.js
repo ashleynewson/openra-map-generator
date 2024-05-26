@@ -1554,31 +1554,69 @@ function generateMap(params) {
     //     }
     // }
 
+    const tiles = new Array(size * size);
+
+    for (let n = 0; n < tiles.length; n++) {
+        if (elevation[n] >= 0) {
+            tiles[n] = 't255';
+        } else {
+            tiles[n] = 't1i0';
+        }
+        if (tiles[n] === null) {
+            tiles[n] = 't51i8';
+        }
+    }
+    for (const coastline of coastlines) {
+        tilePath(tiles, size, coastline, random, params);
+    }
+
     const entities = [];
+    const players = [];
 
     if (params.createEntities) {
+        const zones = [];
+        const zoneable = new Int8Array(size * size);
+        for (let n = 0; n < tiles.length; n++) {
+            zoneable[n] = (codeMap[tiles[n]].Type === 'Clear') ? 1 : -1;
+        }
         // Spawn generation
-        let roominess = calculateRoominess(elevation, size);
+        let roominess = calculateRoominess(zoneable, size);
         {
             const spawnPreference = calculateSpawnPreferences(roominess, size, params.centralReservation, params.spawnRegionSize, params.mirror);
-            dump2d("elevation", elevation, size, size);
+            dump2d("zoneable", zoneable, size, size);
             dump2d("player roominess", roominess, size, size);
             const templatePlayer = findRandomMax(random, spawnPreference, size, params.spawnRegionSize);
             templatePlayer.debugColor = "white";
             templatePlayer.debugRadius = 2;
             templatePlayer.radius = params.spawnBuildSize;
-            const zones = generateFeatureRing(random, templatePlayer, "spawn", params.spawnBuildSize, params.spawnRegionSize, params);
-            entities.push(
+            templatePlayer.owner = "Neutral";
+            templatePlayer.type = "mpspawn";
+            players.push(
                 ...rotateAndMirror(
-                    [templatePlayer, ...zones],
+                    [templatePlayer],
                     size,
                     params.rotations,
                     params.mirror,
                 )
             );
-            dump2d("players", spawnPreference, size, size, entities);
-            for (let entity of entities) {
-                reserveCircleInPlace(roominess, size, entity.x, entity.y, entity.radius, -1);
+            players.forEach((el, i) => {
+                el.number = i;
+                el.name = `Multi${i}`;
+            });
+            entities.push(...players);
+
+            const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", params.spawnBuildSize, params.spawnRegionSize, params);
+            zones.push(
+                ...rotateAndMirror(
+                    [templatePlayer, ...spawnZones],
+                    size,
+                    params.rotations,
+                    params.mirror,
+                )
+            );
+            dump2d("players", spawnPreference, size, size, spawnZones);
+            for (let zone of zones) {
+                reserveCircleInPlace(roominess, size, zone.x, zone.y, zone.radius, -1);
             }
         }
 
@@ -1595,17 +1633,17 @@ function generateMap(params) {
                 radius = params.maxExpansionSize;
             }
 
-            const zones = generateFeatureRing(random, templateExpansion, "expansion", params.expansionInner, radius, params);
-            entities.push(
+            const expansionZones = generateFeatureRing(random, templateExpansion, "expansion", params.expansionInner, radius, params);
+            zones.push(
                 ...rotateAndMirror(
-                    zones,
+                    expansionZones,
                     size,
                     params.rotations,
                     params.mirror,
                 )
             );
-            for (let entity of entities) {
-                reserveCircleInPlace(roominess, size, entity.x, entity.y, entity.radius, -1);
+            for (let zone of zones) {
+                reserveCircleInPlace(roominess, size, zone.x, zone.y, zone.radius, -1);
             }
         }
 
@@ -1622,7 +1660,7 @@ function generateMap(params) {
                 templateBuilding.radius = 2;
                 templateBuilding.debugRadius = 2;
                 templateBuilding.debugColor = "blue";
-                entities.push(
+                zones.push(
                     ...rotateAndMirror(
                         [templateBuilding],
                         size,
@@ -1630,30 +1668,15 @@ function generateMap(params) {
                         params.mirror,
                     )
                 );
-                for (let entity of entities) {
-                    reserveCircleInPlace(roominess, size, entity.x, entity.y, entity.radius, -1);
+                for (let zone of zones) {
+                    reserveCircleInPlace(roominess, size, zone.x, zone.y, zone.radius, -1);
                 }
             }
         }
 
         // Debug output
-        dump2d("entities", elevation.map(x=>(x>0?1:0)), size, size, entities);
-    }
-
-    const tiles = new Array(size * size);
-
-    for (let n = 0; n < tiles.length; n++) {
-        if (elevation[n] >= 0) {
-            tiles[n] = 't255';
-        } else {
-            tiles[n] = 't1i0';
-        }
-        if (tiles[n] === null) {
-            tiles[n] = 't51i8';
-        }
-    }
-    for (const coastline of coastlines) {
-        tilePath(tiles, size, coastline, random, params);
+        dump2d("zones", zoneable.map(x=>(x>0?1:0)), size, size, zones);
+        dump2d("entities", zoneable.map(x=>(x>0?1:0)), size, size, entities);
     }
 
     if (params.enforceSymmetry) {
@@ -1784,12 +1807,28 @@ Players:
 \t\tName: Creeps
 \t\tNonCombatant: True
 \t\tFaction: england
-
-Actors:
 `;
+    if (players.length > 0) {
+        const enemies = players.map(player => player.name).join(", ");
+        map.yaml += `\t\tEnemies: ${enemies}\n`;
+    }
+    for (const player of players) {
+        map.yaml +=
+`\tPlayerReference@${player.name}:
+\t\tName: ${player.name}
+\t\tPlayable: True
+\t\tFaction: Random
+\t\tEnemies: Creeps
+`;
+    }
     {
+        map.yaml += "Actors:\n";
         let num = 0;
         for (const entity of entities) {
+            entity.type ?? die("Entity is missing type");
+            entity.owner ?? die("Entity is missing owner");
+            entity.x ?? die("Entity is missing location");
+            entity.y ?? die("Entity is missing location");
             map.yaml +=
 `\tActor${num++}: ${entity.type}
 \t\tOwner: ${entity.owner}
@@ -1859,8 +1898,8 @@ const settingsMetadata = {
     wavelengthScale: {init: 1.0, type: "float"},
     rotations: {init: 2, type: "int"},
     mirror: {init: 0, type: "int"},
-    createEntities: {init: false, type: "bool"},
-    enforceSymmetry: {init: true, type: "bool"},
+    createEntities: {init: true, type: "bool"},
+    enforceSymmetry: {init: false, type: "bool"},
     playersPerRotation: {init: 1, type: "int"},
     startingMines: {init: 3, type: "int"},
     startingOre: {init: 3, type: "int"},
