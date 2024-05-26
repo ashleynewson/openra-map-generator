@@ -554,13 +554,11 @@ function zoneColor(type) {
     }
 }
 
-function generateFeatureRing(random, location, type, radius1, radius2, params) {
-    radius1 ?? die("bad radius1");
-    Number.isNaN(radius1) && die("radius1 is NaN");
-    radius2 ?? die("bad radius2");
-    Number.isNaN(radius2) && die("radius2 is NaN");
+function generateFeatureRing(random, location, type, room, params) {
     const features = [];
     const ring = [];
+    const radius1 = (room < params.spawnBuildSize) ? room : params.spawnBuildSize;
+    const radius2 = (room < params.spawnRegionSize) ? room : params.spawnRegionSize;
     const radius = (radius1 + radius2) / 2;
     const circumference = (radius * Math.PI * 2);
     let ringBudget = circumference | 0;
@@ -1604,7 +1602,8 @@ function generateMap(params) {
                 )
             );
 
-            const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", params.spawnBuildSize, params.spawnRegionSize, params);
+            const roomAtSpawn = roominess[templatePlayer.y * size + templatePlayer.x] - 1;
+            const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", roomAtSpawn, params);
             zones.push(
                 ...rotateAndMirror(
                     [templatePlayer, ...spawnZones],
@@ -1828,7 +1827,7 @@ function generateMap(params) {
     map.yaml =
 `MapFormat: 12
 RequiresMod: ra
-Title: Random Map ${seed} @${Date.now()}
+Title: Random Map ${params.seed} @${Date.now()}
 Author: OpenRA Random Map Generator Prototype
 Tileset: TEMPERAT
 MapSize: ${size+2},${size+2}
@@ -1955,21 +1954,23 @@ export function generate() {
 const settingsMetadata = {
     seed: {init: -2024525772, type: "int"},
     size: {init: 96, type: "int"},
+    rotations: {init: 2, type: "int"},
+    mirror: {init: 0, type: "int"},
+    playersPerRotation: {init: 1, type: "int"},
+
     water: {init: 0.5, type: "float"},
     terrainSmoothing: {init: 4, type: "int"},
     smoothingThreshold: {init: 0.33, type: "float"},
     minimumThickness: {init: 5, type: "int"},
     wavelengthScale: {init: 1.0, type: "float"},
-    rotations: {init: 2, type: "int"},
-    mirror: {init: 0, type: "int"},
-    createEntities: {init: true, type: "bool"},
     enforceSymmetry: {init: false, type: "bool"},
-    playersPerRotation: {init: 1, type: "int"},
+
+    createEntities: {init: true, type: "bool"},
     startingMines: {init: 3, type: "int"},
     startingOre: {init: 3, type: "int"},
     centralReservation: {init: 16, type: "int"},
-    spawnRegionSize: {init: 8, type: "int"},
-    spawnBuildSize: {init: 4, type: "int"},
+    spawnRegionSize: {init: 16, type: "int"},
+    spawnBuildSize: {init: 8, type: "int"},
     spawnMines: {init: 3, type: "int"},
     spawnOre: {init: 3, type: "int"},
     maxExpansions: {init: 4, type: "int"},
@@ -2034,7 +2035,7 @@ export function writeSettings(settings) {
     }
 }
 
-export function configurePreset() {
+export function configurePreset(generateRandom) {
     let preset = document.getElementById("preset").value;
     document.getElementById("preset").value = "placeholder";
     if (preset === "random") {
@@ -2048,10 +2049,13 @@ export function configurePreset() {
         preset = randomPresets[(Math.random() * randomPresets.length) | 0];
     }
 
-    const oldSettings = readSettings();
+    const old = readSettings();
     const settings = {
-        seed: oldSettings.seed,
-        size: oldSettings.size,
+        seed: old.seed,
+        size: old.size,
+        rotations: old.rotations,
+        mirror: old.mirror,
+        playersPerRotation: old.playersPerRotation,
     };
     switch(preset) {
     case "placeholder":
@@ -2084,6 +2088,10 @@ export function configurePreset() {
         die(`Unknown preset ${preset}`);
     }
     writeSettings(settings);
+    if (generateRandom) {
+        randomSeed();
+        generate();
+    }
 }
 
 
