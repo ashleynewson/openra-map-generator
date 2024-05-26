@@ -27,8 +27,8 @@ function dump2d(label, data, w, h, points) {
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
-    canvas.style.width = `${w*8}px`;
-    canvas.style.height = `${h*8}px`;
+    canvas.style.width = `${w*6}px`;
+    canvas.style.height = `${h*6}px`;
     const ctx = canvas.getContext("2d");
     const min = Math.min(...data);
     const max = Math.max(...data);
@@ -1581,9 +1581,11 @@ function generateMap(params) {
         for (let n = 0; n < tiles.length; n++) {
             zoneable[n] = (codeMap[tiles[n]].Type === 'Clear') ? 1 : -1;
         }
-        // Spawn generation
         let roominess = calculateRoominess(zoneable, size);
-        {
+
+        // Spawn generation
+        for (let iteration = 0; iteration < params.playersPerRotation; iteration++) {
+            roominess = calculateRoominess(roominess, size);
             const spawnPreference = calculateSpawnPreferences(roominess, size, params.centralReservation, params.spawnRegionSize, params.mirror);
             dump2d("zoneable", zoneable, size, size);
             dump2d("player roominess", roominess, size, size);
@@ -1601,11 +1603,6 @@ function generateMap(params) {
                     params.mirror,
                 )
             );
-            players.forEach((el, i) => {
-                el.number = i;
-                el.name = `Multi${i}`;
-            });
-            entities.push(...players);
 
             const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", params.spawnBuildSize, params.spawnRegionSize, params);
             zones.push(
@@ -1616,11 +1613,15 @@ function generateMap(params) {
                     params.mirror,
                 )
             );
-            dump2d("players", spawnPreference, size, size, spawnZones);
             for (let zone of zones) {
                 reserveCircleInPlace(roominess, size, zone.x, zone.y, zone.radius, -1);
             }
         }
+        players.forEach((el, i) => {
+            el.number = i;
+            el.name = `Multi${i}`;
+        });
+        entities.push(...players);
 
         // Expansions
         for (let i = 0; i < params.maxExpansions ?? 0; i++) {
@@ -1772,7 +1773,7 @@ function generateMap(params) {
         resources,
         resourceDensities,
         bin: {},
-        spawns: [],
+        players,
     };
 
     map.bin.u8format = 2;
@@ -1827,7 +1828,7 @@ function generateMap(params) {
     map.yaml =
 `MapFormat: 12
 RequiresMod: ra
-Title: Random Map
+Title: Random Map ${seed} @${Date.now()}
 Author: OpenRA Random Map Generator Prototype
 Tileset: TEMPERAT
 MapSize: ${size+2},${size+2}
@@ -1930,6 +1931,15 @@ export function generate() {
             // ctx.fillStyle = "rgb(0, "+(map.elevation[y * size + x]*5000+128)+", 0)";
             ctx.fillRect(x, y, 1, 1);
         }
+    }
+    for (const player of map.players) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.fillStyle = "#808080";
+        ctx.beginPath();
+        ctx.arc(player.x + 0.5, player.y + 0.5, 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fill();
     }
 
     {
