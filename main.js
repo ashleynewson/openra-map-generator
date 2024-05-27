@@ -554,11 +554,14 @@ function zoneColor(type) {
     }
 }
 
-function generateFeatureRing(random, location, type, room, params) {
+function generateFeatureRing(random, location, type, radius1, radius2, params) {
+    radius1 ?? die("bad radius1");
+    Number.isNaN(radius1) && die("radius1 is NaN");
+    radius2 ?? die("bad radius2");
+    Number.isNaN(radius2) && die("radius2 is NaN");
+    radius1 <= radius2 || die("radius1 was greater than radius2");
     const features = [];
     const ring = [];
-    const radius1 = (room < params.spawnBuildSize) ? room : params.spawnBuildSize;
-    const radius2 = (room < params.spawnRegionSize) ? room : params.spawnRegionSize;
     const radius = (radius1 + radius2) / 2;
     const circumference = (radius * Math.PI * 2);
     let ringBudget = circumference | 0;
@@ -1588,6 +1591,9 @@ function generateMap(params) {
             dump2d("zoneable", zoneable, size, size);
             dump2d("player roominess", roominess, size, size);
             const templatePlayer = findRandomMax(random, spawnPreference, size, params.spawnRegionSize);
+            const room = templatePlayer.value - 1;
+            const radius1 = Math.min(params.spawnBuildSize, room);
+            const radius2 = Math.min(params.spawnRegionSize, room);
             templatePlayer.debugColor = "white";
             templatePlayer.debugRadius = 2;
             templatePlayer.radius = params.spawnBuildSize;
@@ -1602,8 +1608,7 @@ function generateMap(params) {
                 )
             );
 
-            const roomAtSpawn = roominess[templatePlayer.y * size + templatePlayer.x] - 1;
-            const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", roomAtSpawn, params);
+            const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", radius1, radius2, params);
             zones.push(
                 ...rotateAndMirror(
                     [templatePlayer, ...spawnZones],
@@ -1627,15 +1632,17 @@ function generateMap(params) {
             roominess = calculateRoominess(roominess, size);
             dump2d(`expansion roominess ${i}`, roominess, size, size);
             const templateExpansion = findRandomMax(random, roominess, size, params.maxExpansionSize + params.expansionBorder);
-            let radius = templateExpansion.value - params.expansionBorder;
-            if (radius < params.minExpansionSize) {
+            const room = templateExpansion.value - 1;
+            let radius2 = room - params.expansionBorder;
+            if (radius2 < params.minExpansionSize) {
                 break;
             }
-            if (radius > params.maxExpansionSize) {
-                radius = params.maxExpansionSize;
+            if (radius2 > params.maxExpansionSize) {
+                radius2 = params.maxExpansionSize;
             }
+            const radius1 = Math.min(Math.min(params.expansionInner, room), radius2);
 
-            const expansionZones = generateFeatureRing(random, templateExpansion, "expansion", params.expansionInner, radius, params);
+            const expansionZones = generateFeatureRing(random, templateExpansion, "expansion", radius1, radius2, params);
             zones.push(
                 ...rotateAndMirror(
                     expansionZones,
@@ -1701,6 +1708,15 @@ function generateMap(params) {
                 reserveCircleInPlace(resourceDensities, size, zone.x, zone.y, zone.radius, 3);
                 break;
             // Default ignore
+            }
+        }
+
+        // Remove any ore that goes outside of the bounds of clear tiles.
+        // (This may introduce some significant bias to certain players!)
+        for (let n = 0; n < resources.length; n++) {
+            if (codeMap[tiles[n]].Type !== "Clear") {
+                resources[n] = 0;
+                resourceDensities[n] = 0;
             }
         }
 
