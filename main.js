@@ -1642,18 +1642,38 @@ function generateMap(params) {
     }
 
     if (params.mountains > 0.0) {
+        let cliffPlan = landPlan;
         const mountainElevation = elevation.slice();
-        calibrateHeightInPlace(
-            mountainElevation,
-            0.0,
-            1.0 - params.mountains,
-        );
-        dump2d("mountains", mountainElevation, size, size);
-        let cliffPlan = fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumThickness, "cliffPlan");
-        let cliffs = zeroLinesToPaths(cliffPlan, size, "Cliff");
-        cliffs = cliffs.map(cliff => tweakPath(cliff, size));
-        for (const cliff of cliffs) {
-            tilePath(tiles, size, cliff, random, params.minimumThickness);
+        for (let altitude = 1; altitude <= /*maxAltitude=*/8; altitude++) {
+            // Limit mountain area to the existing mountain space (starting with all available land)
+            const roominess = calculateRoominess(cliffPlan, size, true);
+            let available = 0;
+            let total = 0;
+            for (let n = 0; n < mountainElevation.length; n++) {
+                if (roominess[n] < /*nestedCliffSpacing=*/4) {
+                    // Too close to existing cliffs (or coastline)
+                    mountainElevation[n] = -1;
+                } else {
+                    available++;
+                }
+                total++;
+            }
+            const availableFraction = available / total;
+            calibrateHeightInPlace(
+                mountainElevation,
+                0.0,
+                1.0 - availableFraction * params.mountains,
+            );
+            dump2d(`mountains at altitude ${altitude}`, mountainElevation, size, size);
+            cliffPlan = fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumThickness, "cliffPlan");
+            let cliffs = zeroLinesToPaths(cliffPlan, size, "Cliff");
+            if (cliffs.length === 0) {
+                break;
+            }
+            cliffs = cliffs.map(cliff => tweakPath(cliff, size));
+            for (const cliff of cliffs) {
+                tilePath(tiles, size, cliff, random, params.minimumThickness);
+            }
         }
     }
 
@@ -2188,6 +2208,11 @@ export function configurePreset(generateRandom) {
     case "oceanic":
         settings.water = 0.8;
         settings.wavelengthScale = 0.2;
+        break;
+    case "lake-district":
+        settings.water = 0.2;
+        settings.wavelengthScale = 0.2;
+        settings.mountains = 0.7;
         break;
     default:
         die(`Unknown preset ${preset}`);
