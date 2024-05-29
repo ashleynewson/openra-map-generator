@@ -14,11 +14,19 @@ const codeMap = {};
 const debugDiv = document.getElementById("debug");
 
 function die(err) {
-    const log = document.createElement("pre");
-    log.textContent = err;
-    log.style.color = "red";
-    debugDiv.append(log);
     throw new Error(err);
+}
+
+function framePreview(color) {
+    const canvas = document.getElementById("canvas");
+    canvas.style.borderColor = color;
+}
+
+function blankPreview(color) {
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
 function breakpoint() {}
@@ -126,6 +134,7 @@ function letterToDirection(letter) {
     case 'LU': return DIRECTION_LU;
     case 'U' : return DIRECTION_U;
     case 'RU': return DIRECTION_RU;
+    case 'N':  return DIRECTION_NONE;
     default: die('Bad direction letter: ' + letter);
     }
 }
@@ -677,6 +686,46 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
     return features;
 }
 
+function gaussianKernel1D(radius, standardDeviation) {
+    const size = radius * 2 + 1;
+    const kernel = new Float32Array(size);
+    const dsd2 = 2 * (standardDeviation**2);
+    let total = 0;
+    for (let x = -radius; x <= radius; x++) {
+        const value = Math.exp(-(x**2 / dsd2));
+        kernel[x + radius] = value;
+        total += value;
+    }
+    // Instead of dividing by Math.sqrt(Math.PI * dsd2), divide by the total.
+    for (let i = 0; i < size; i++) {
+        kernel[i] /= total;
+    }
+    return kernel;
+}
+
+function kernelBlur(input, size, kernel, kernelW, kernelH, kernelX, kernelY) {
+    const output = new Float32Array(size * size);
+    for (let cy = 0; cy < size; cy++) {
+        for (let cx = 0; cx < size; cx++) {
+            let total = 0;
+            let samples = 0;
+            for (let ky = 0; ky < kernelH; ky++) {
+                for (let kx = 0; kx < kernelW; kx++) {
+                    const x = cx + kx - kernelX;
+                    const y = cy + ky - kernelY;
+                    if (x < 0 || x >= size || y < 0 || y >= size) {
+                        continue;
+                    }
+                    total += input[y * size + x] * kernel[ky * kernelW + kx];
+                    samples++;
+                }
+            }
+            output[cy * size + cx] = total / samples;
+        }
+    }
+    return output;
+}
+
 function medianBlur(input, size, radius, extendOut, threshold) {
     extendOut ??= false;
     const halfThreshold = (threshold ?? 0) / 2;
@@ -875,17 +924,85 @@ function zip2(a, b, f) {
     return c;
 }
 
-function detectCoastlines(elevation, size) {
-    const typeN = info.typeNs["Coastline"];
+function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minimumThickness, debugLabel) {
+    if (typeof(debugLabel) === "undefined") {
+        debugLabel = "(unlabelled)";
+    }
+    // Make height discrete -1 and 1.
+    let landmass = elevation.map(v => (v >= 0 ? 1 : -1));
+    dump2d(`${debugLabel}: unsmoothed terrain`, landmass.map(v=>Math.sign(v)), size, size);
+    // Primary smoothing
+    [landmass, ] = medianBlur(landmass, size, terrainSmoothing ?? 0, true);
+    dump2d(`${debugLabel}: smoothed terrain`, landmass.map(v=>Math.sign(v)), size, size);
+    for (let i1 = 0; i1 < /*max passes*/16; i1++) {
+        for (let i2 = 0; i2 < size; i2++) {
+            let signChanges;
+            let signChangesAcc = 0;
+            for (let r = 1; r <= terrainSmoothing ?? 0; r++) {
+                [landmass, , signChanges] = medianBlur(landmass, size, r, true, smoothingThreshold ?? 0.5);
+                signChangesAcc += signChanges;
+            }
+            dump2d(`${debugLabel}: threshold smoothed terrain (round ${i1},${i2}: ${signChangesAcc} sign changes)`, landmass.map(v=>Math.sign(v)), size, size);
+            if (signChangesAcc === 0) {
+                break;
+            }
+        }
+        let changesAcc = 0;
+        let changes;
+        let thinnest;
+        [landmass, changes] = erodeAndDilate(landmass, size, true, minimumThickness);
+        changesAcc += changes;
+        dump2d(`${debugLabel}: erodeAndDilate land (round ${i1}: ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        [thinnest, changes] = fixThinMassesInPlaceFull(landmass, size, true, minimumThickness);
+        changesAcc += changes;
+        dump2d(`${debugLabel}: fixThinMassesInPlace land (round ${i1}: ${thinnest} tightness, ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+
+        const midFixLandmass = landmass.slice();
+
+        [landmass, changes] = erodeAndDilate(landmass, size, false, minimumThickness);
+        changesAcc += changes;
+        dump2d(`${debugLabel}: erodeAndDilate sea (round ${i1}: ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        [thinnest, changes] = fixThinMassesInPlaceFull(landmass, size, false, minimumThickness);
+        changesAcc += changes;
+        dump2d(`${debugLabel}: fixThinMassesInPlace sea (round ${i1}: ${thinnest} tightness, ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        if (changesAcc === 0) {
+            break;
+        }
+        console.log(`${debugLabel}: Thinness corrections were made. Running extra passes.`);
+        if (i1 >= 8 && i1 % 4 === 0) {
+            console.log(`${debugLabel}: Struggling to stablize terrain. Leveling problematic regions.`);
+            const diff = zip2(midFixLandmass, landmass, (a, b)=>(a!==b ? 1 : 0));
+            dump2d(`${debugLabel}: unstable (round ${i1})`, diff, size, size);
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const i = y * size + x;
+                    if (diff[i] === 1) {
+                        reserveCircleInPlace(landmass, size, x, y, minimumThickness * 2, 1);
+                    }
+                }
+            }
+            dump2d(`${debugLabel}: leveled (round ${i1})`, landmass, size, size);
+        }
+    }
+    return landmass;
+}
+
+// Use to trace paths around terrain features
+function zeroLinesToPaths(elevation, size, type) {
+    type ?? die("type required");
+    const typeN = info.typeNs[type] ?? die(`missing typeNs entry for ${type}`);
+    const permittedTemplates = info.templatesByType[type] ?? die(`missing templatesByType entry for ${type}`);
     // There is redundant memory/iteration, but I don't care enough.
-    const coastlineH = new Int8Array(size * size);
-    const coastlineV = new Int8Array(size * size);
+
+    // These are really only the signs of the gradients.
+    const gradientH = new Int8Array(size * size);
+    const gradientV = new Int8Array(size * size);
     for (let y = 0; y < size; y++) {
         for (let x = 1; x < size; x++) {
             const i = y * size + x;
             const l = elevation[i-1] >= 0 ? 1 : 0;
             const r = elevation[i] >= 0 ? 1 : 0;
-            coastlineV[i] = r - l;
+            gradientV[i] = r - l;
         }
     }
     for (let y = 1; y < size; y++) {
@@ -893,13 +1010,13 @@ function detectCoastlines(elevation, size) {
             const i = y * size + x;
             const u = elevation[i-size] >= 0 ? 1 : 0;
             const d = elevation[i] >= 0 ? 1 : 0;
-            coastlineH[i] = d - u;
+            gradientH[i] = d - u;
         }
     }
 
-    // Looping coastlines contain the start/end point twice.
-    const coastlines = [];
-    const traceCoast = function(sx, sy, direction) {
+    // Looping paths contain the start/end point twice.
+    const paths = [];
+    const tracePath = function(sx, sy, direction) {
         const points = [];
         let x = sx;
         let y = sy;
@@ -907,28 +1024,28 @@ function detectCoastlines(elevation, size) {
         do {
             switch (direction) {
             case DIRECTION_R:
-                coastlineH[y * size + x] = 0;
+                gradientH[y * size + x] = 0;
                 x++;
                 break;
             case DIRECTION_D:
-                coastlineV[y * size + x] = 0;
+                gradientV[y * size + x] = 0;
                 y++;
                 break;
             case DIRECTION_L:
                 x--;
-                coastlineH[y * size + x] = 0;
+                gradientH[y * size + x] = 0;
                 break;
             case DIRECTION_U:
                 y--;
-                coastlineV[y * size + x] = 0;
+                gradientV[y * size + x] = 0;
                 break;
             }
             points.push({x, y, typeN});
             const i = y * size + x;
-            const r = x < size && coastlineH[i] > 0;
-            const d = y < size && coastlineV[i] < 0;
-            const l = x > 0 && coastlineH[i - 1] < 0;
-            const u = y > 0 && coastlineV[i - size] > 0;
+            const r = x < size && gradientH[i] > 0;
+            const d = y < size && gradientV[i] < 0;
+            const l = x > 0 && gradientH[i - 1] < 0;
+            const u = y > 0 && gradientV[i - size] > 0;
             if (direction == DIRECTION_R && u) {
                 direction = DIRECTION_U;
             } else if (direction == DIRECTION_D && r) {
@@ -950,10 +1067,10 @@ function detectCoastlines(elevation, size) {
                 break;
             }
         } while (x != sx || y != sy);
-        coastlines.push({
+        paths.push({
             points,
-            type: "Coastline",
-            permittedTemplates: info.templatesByType["Coastline"],
+            type,
+            permittedTemplates,
         });
     };
     // Trace non-loops (from edge of map)
@@ -961,29 +1078,29 @@ function detectCoastlines(elevation, size) {
         {
             const x = n;
             const y = 0;
-            if (coastlineV[y * size + x] < 0) {
-                traceCoast(x, y, DIRECTION_D);
+            if (gradientV[y * size + x] < 0) {
+                tracePath(x, y, DIRECTION_D);
             }
         }
         {
             const x = n;
             const y = size - 1;
-            if (coastlineV[y * size + x] > 0) {
-                traceCoast(x, y+1, DIRECTION_U);
+            if (gradientV[y * size + x] > 0) {
+                tracePath(x, y+1, DIRECTION_U);
             }
         }
         {
             const x = 0;
             const y = n;
-            if (coastlineH[y * size + x] > 0) {
-                traceCoast(x, y, DIRECTION_R);
+            if (gradientH[y * size + x] > 0) {
+                tracePath(x, y, DIRECTION_R);
             }
         }
         {
             const x = size - 1;
             const y = n;
-            if (coastlineH[y * size + x] < 0) {
-                traceCoast(x+1, y, DIRECTION_L);
+            if (gradientH[y * size + x] < 0) {
+                tracePath(x+1, y, DIRECTION_L);
             }
         }
     }
@@ -991,20 +1108,20 @@ function detectCoastlines(elevation, size) {
     for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
             const i = y * size + x;
-            if (coastlineH[i] > 0) {
-                traceCoast(x, y, DIRECTION_R);
-            } else if (coastlineH[i] < 0) {
-                traceCoast(x+1, y, DIRECTION_L);
+            if (gradientH[i] > 0) {
+                tracePath(x, y, DIRECTION_R);
+            } else if (gradientH[i] < 0) {
+                tracePath(x+1, y, DIRECTION_L);
             }
-            if (coastlineV[i] < 0) {
-                traceCoast(x, y, DIRECTION_D);
-            } else if (coastlineV[i] > 0) {
-                traceCoast(x, y+1, DIRECTION_U);
+            if (gradientV[i] < 0) {
+                tracePath(x, y, DIRECTION_D);
+            } else if (gradientV[i] > 0) {
+                tracePath(x, y+1, DIRECTION_U);
             }
         }
     }
 
-    return coastlines;
+    return paths;
 }
 
 function tweakPath(path, size) {
@@ -1146,7 +1263,7 @@ function paintTemplate(tiles, size, px, py, template) {
     }
 }
 
-function tilePath(tiles, tilesSize, path, random, params) {
+function tilePath(tiles, tilesSize, path, random, minimumThickness) {
     let minPointX = Infinity;
     let minPointY = Infinity;
     let maxPointX = -Infinity;
@@ -1165,7 +1282,7 @@ function tilePath(tiles, tilesSize, path, random, params) {
             maxPointY = point.y;
         }
     }
-    const maxDeviation = (params.minimumThickness - 1) >> 1;
+    const maxDeviation = (minimumThickness - 1) >> 1;
     minPointX -= maxDeviation;
     minPointY -= maxDeviation;
     maxPointX += maxDeviation;
@@ -1363,7 +1480,7 @@ function tilePath(tiles, tilesSize, path, random, params) {
             }
 
             const tscore = fscore + templateScore;
-            const tb = template.EndDir;
+            const tb = template.EndBorderN;
             const til = borderToZ[tb] * sizeXY + ti;
             if (tscore < scores[til]) {
                 scores[til] = tscore;
@@ -1464,9 +1581,14 @@ function generateMap(params) {
     const size = params.size ?? die("need size");
 
     // Terrain generation
-    const water = params.water ?? die("need water");
-    if (water < 0.0 || water > 1.0) {
-        die("water must be between 0 and 1 inclusive");
+    if (params.water < 0.0 || params.water > 1.0) {
+        die("water fraction must be between 0 and 1 inclusive");
+    }
+    if (params.mountain < 0.0 || params.mountain > 1.0) {
+        die("mountain fraction must be between 0 and 1 inclusive");
+    }
+    if (params.water + params.mountain > 1.0) {
+        die("water and mountain fractions combined must not exceed 1");
     }
     const random = new Random(params.seed);
     let elevation = fractalNoise2dWithSymetry({
@@ -1480,87 +1602,30 @@ function generateMap(params) {
         const min = Math.min(...elevation);
         dump2d("uncalibrated terrain (zero-rebased)", elevation.map(v => v-min), size, size);
     }
+    if (params.terrainSmoothing) {
+        const radius = params.terrainSmoothing;
+        const kernel = gaussianKernel1D(radius, radius);
+        elevation = kernelBlur(elevation, size, kernel, radius * 2 + 1, 1, radius, 0);
+        elevation = kernelBlur(elevation, size, kernel, 1, radius * 2 + 1, 0, radius);
+        const min = Math.min(...elevation);
+        dump2d("guassian-smoothed terrain (zero-rebased)", elevation.map(v => v-min), size, size);
+    }
     calibrateHeightInPlace(
         elevation,
         0.0,
-        water,
+        params.water,
     );
     {
         dump2d("calibrated terrain", elevation, size, size);
     }
-    // Make height discrete -1 and 1.
-    elevation = elevation.map(v => (v >= 0 ? 1 : -1));
-    dump2d("unsmoothed terrain", elevation.map(v=>Math.sign(v)), size, size);
-    // Primary smoothing
-    [elevation, ] = medianBlur(elevation, size, params.terrainSmoothing ?? 0, true);
-    dump2d("smoothed terrain", elevation.map(v=>Math.sign(v)), size, size);
-    for (let i1 = 0; i1 < /*max passes*/16; i1++) {
-        for (let i2 = 0; i2 < size; i2++) {
-            let signChanges;
-            let signChangesAcc = 0;
-            for (let r = 1; r <= params.terrainSmoothing ?? 0; r++) {
-                [elevation, , signChanges] = medianBlur(elevation, size, r, true, params.smoothingThreshold ?? 0.5);
-                signChangesAcc += signChanges;
-            }
-            dump2d(`threshold smoothed terrain (round ${i1},${i2}: ${signChangesAcc} sign changes)`, elevation.map(v=>Math.sign(v)), size, size);
-            if (signChangesAcc === 0) {
-                break;
-            }
-        }
-        let changesAcc = 0;
-        let changes;
-        let thinnest;
-        [elevation, changes] = erodeAndDilate(elevation, size, true, params.minimumThickness);
-        changesAcc += changes;
-        dump2d(`erodeAndDilate land (round ${i1}: ${changes} fixes)`, elevation.map(v=>Math.sign(v)), size, size);
-        [thinnest, changes] = fixThinMassesInPlaceFull(elevation, size, true, params.minimumThickness);
-        changesAcc += changes;
-        dump2d(`fixThinMassesInPlace land (round ${i1}: ${thinnest} tightness, ${changes} fixes)`, elevation.map(v=>Math.sign(v)), size, size);
-
-        const midFixElevation = elevation.slice();
-
-        [elevation, changes] = erodeAndDilate(elevation, size, false, params.minimumThickness);
-        changesAcc += changes;
-        dump2d(`erodeAndDilate sea (round ${i1}: ${changes} fixes)`, elevation.map(v=>Math.sign(v)), size, size);
-        [thinnest, changes] = fixThinMassesInPlaceFull(elevation, size, false, params.minimumThickness);
-        changesAcc += changes;
-        dump2d(`fixThinMassesInPlace sea (round ${i1}: ${thinnest} tightness, ${changes} fixes)`, elevation.map(v=>Math.sign(v)), size, size);
-        if (changesAcc === 0) {
-            break;
-        }
-        console.log("Thinness corrections were made. Running extra passes.");
-        if (i1 >= 8 && i1 % 4 === 0) {
-            console.log("Struggling to stablize terrain. Leveling problematic regions.");
-            const diff = zip2(midFixElevation, elevation, (a, b)=>(a!==b ? 1 : 0));
-            dump2d(`unstable (round ${i1})`, diff, size, size);
-            for (let y = 0; y < size; y++) {
-                for (let x = 0; x < size; x++) {
-                    const i = y * size + x;
-                    if (diff[i] === 1) {
-                        reserveCircleInPlace(elevation, size, x, y, params.minimumThickness * 2, 1);
-                    }
-                }
-            }
-            dump2d(`leveled (round ${i1})`, elevation, size, size);
-        }
-    }
-
-    let coastlines = detectCoastlines(elevation, size);
-    coastlines = coastlines.map(coastline => tweakPath(coastline, size));
-    // { // DEBUG
-    //     for (const coastline of coastlines) {
-    //         coastline[0].debugColor = 'blue';
-    //         coastline[0].debugRadius = 6;
-    //         dump2d(`DEBUG coast`, elevation, size, size, coastline);
-    //     }
-    // }
+    let landPlan = fixTerrain(elevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumThickness, "landPlan");
 
     const tiles = new Array(size * size);
     const resources = new Uint8Array(size * size);
     const resourceDensities = new Uint8Array(size * size);
 
     for (let n = 0; n < tiles.length; n++) {
-        if (elevation[n] >= 0) {
+        if (landPlan[n] >= 0) {
             tiles[n] = 't255';
         } else {
             tiles[n] = 't1i0';
@@ -1569,8 +1634,27 @@ function generateMap(params) {
             tiles[n] = 't51i8';
         }
     }
+
+    let coastlines = zeroLinesToPaths(landPlan, size, "Coastline");
+    coastlines = coastlines.map(coastline => tweakPath(coastline, size));
     for (const coastline of coastlines) {
-        tilePath(tiles, size, coastline, random, params);
+        tilePath(tiles, size, coastline, random, params.minimumThickness);
+    }
+
+    if (params.mountains > 0.0) {
+        const mountainElevation = elevation.slice();
+        calibrateHeightInPlace(
+            mountainElevation,
+            0.0,
+            1.0 - params.mountains,
+        );
+        dump2d("mountains", mountainElevation, size, size);
+        let cliffPlan = fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumThickness, "cliffPlan");
+        let cliffs = zeroLinesToPaths(cliffPlan, size, "Cliff");
+        cliffs = cliffs.map(cliff => tweakPath(cliff, size));
+        for (const cliff of cliffs) {
+            tilePath(tiles, size, cliff, random, params.minimumThickness);
+        }
     }
 
     const entities = [];
@@ -1711,19 +1795,20 @@ function generateMap(params) {
             }
         }
 
-        // Remove any ore that goes outside of the bounds of clear tiles.
-        // (This may introduce some significant bias to certain players!)
-        for (let n = 0; n < resources.length; n++) {
-            if (codeMap[tiles[n]].Type !== "Clear") {
-                resources[n] = 0;
-                resourceDensities[n] = 0;
-            }
-        }
-
         // Debug output
         dump2d("zones", zoneable.map(x=>(x>0?1:0)), size, size, zones);
         dump2d("entities", zoneable.map(x=>(x>0?1:0)), size, size, entities);
         dump2d("resources", resources, size, size);
+        dump2d("post-entity roominess", roominess, size, size);
+    }
+
+    // Remove any ore that goes outside of the bounds of clear tiles.
+    // (This may introduce some significant bias to certain players!)
+    for (let n = 0; n < resources.length; n++) {
+        if (codeMap[tiles[n]].Type !== "Clear") {
+            resources[n] = 0;
+            resourceDensities[n] = 0;
+        }
     }
 
     if (params.enforceSymmetry) {
@@ -1904,6 +1989,7 @@ export function generate() {
 
     const saveBin = document.getElementById("saveBin");
     const saveYaml = document.getElementById("saveYaml");
+    const savePng = document.getElementById("savePng");
 
     const settings = readSettings();
 
@@ -1965,6 +2051,8 @@ export function generate() {
     {
         savePng.href = canvas.toDataURL();
     }
+
+    framePreview("green");
 }
 
 const settingsMetadata = {
@@ -1975,6 +2063,7 @@ const settingsMetadata = {
     playersPerRotation: {init: 1, type: "int"},
 
     water: {init: 0.5, type: "float"},
+    mountains: {init: 0.1, type: "float"},
     terrainSmoothing: {init: 4, type: "int"},
     smoothingThreshold: {init: 0.33, type: "float"},
     minimumThickness: {init: 5, type: "int"},
@@ -2106,12 +2195,39 @@ export function configurePreset(generateRandom) {
     writeSettings(settings);
     if (generateRandom) {
         randomSeed();
-        generate();
+        beginGenerate();
     }
 }
 
+export function beginGenerate() {
+    const statusLine = document.getElementById("status-line");
+    const saveLinks = document.getElementById("save-links");
+    requestAnimationFrame(function() {
+        statusLine.textContent = "Generating...";
+        saveLinks.style.visibility = "hidden";
+        framePreview("grey");
+        blankPreview("black");
+        setTimeout(function () {
+            try {
+                generate();
+                statusLine.textContent = "Done";
+                saveLinks.style.visibility = "visible";
+            } catch (err) {
+                const log = document.createElement("pre");
+                log.textContent = `Generation failed: ${err.message}\n${err.stack ?? ""}`;
+                log.style.color = "red";
+                debugDiv.append(log);
+                framePreview("red");
+                blankPreview("grey");
+                statusLine.textContent = "Error. Check debugging information below.";
+                throw err;
+            }
+        }, 0);
+    });
+};
 
 window.generate = generate;
+window.beginGenerate = beginGenerate;
 window.configurePreset = configurePreset;
 
 window.randomSeed = function() {
@@ -2127,51 +2243,18 @@ fetch("temperat-info.json")
         info = data;
         window.info = info;
         info.codeMap = codeMap;
-        info.uniqueEdges = {};
-        info.edges = {};
         info.sortedIndices = [];
         info.tileCount = 0;
-        const recordEdge = function(edge, direction, tiIndex) {
-            info.edges[edge] ??= {
-                L: new Set(),
-                R: new Set(),
-                U: new Set(),
-                D: new Set(),
-            };
-            info.edges[edge][direction].add(tiIndex);
-            info.uniqueEdges[edge] ??= {};
-            if (typeof(info.uniqueEdges[edge][direction]) === "undefined") {
-                info.uniqueEdges[edge][direction] = tiIndex;
-            } else {
-                info.uniqueEdges[edge][direction] = null;
-            }
-        }
-        for (const tiIndex in info.TileInfo) {
-            if (!Object.hasOwn(info.TileInfo, tiIndex)) {
-                continue;
-            }
+        for (const tiIndex of Object.keys(info.TileInfo)) {
             const ti = info.TileInfo[tiIndex];
-            ti.AllTypes = new Set(ti.AllTypes);
             codeMap[tiIndex] = ti;
             for (let code of ti.Codes) {
                 codeMap[code] = ti;
             }
-            recordEdge(ti.L, 'R', tiIndex);
-            recordEdge(ti.R, 'L', tiIndex);
-            recordEdge(ti.U, 'D', tiIndex);
-            recordEdge(ti.D, 'U', tiIndex);
             info.tileCount++;
             info.sortedIndices.push(tiIndex);
         }
         info.sortedIndices.sort();
-        for (const uniqueEdge of Object.values(info.uniqueEdges)) {
-            uniqueEdge.L ??= null;
-            uniqueEdge.R ??= null;
-            uniqueEdge.U ??= null;
-            uniqueEdge.D ??= null;
-            (uniqueEdge.L === null) === (uniqueEdge.R === null) || console.log(`Possible L-R mismatch for ${JSON.stringify(uniqueEdge)}`);
-            (uniqueEdge.U === null) === (uniqueEdge.D === null) || console.log(`Possible U-D mismatch for ${JSON.stringify(uniqueEdge)}`);
-        }
         const sizeRe = /^(\d+),(\d+)$/;
         for (const templateName of Object.keys(info.Tileset.Templates).toSorted()) {
             const template = info.Tileset.Templates[templateName];
@@ -2179,16 +2262,19 @@ fetch("temperat-info.json")
             template.SizeX = x | 0;
             template.SizeY = y | 0;
         }
-        // const templatesByStartDir = [[], [], [], [], [], [], [], []];
-        // const templatesByEndDir = [[], [], [], [], [], [], [], []];
         info.typeNs = {
             "Coastline": 0,
+            "Clear": 1,
+            "Cliff": 2,
         };
         info.borderNs = [
-            [0, 1, 2, 3, 4, 5, 6, 7], // 1
+            [0, 1, 2, 3, 4, 5, 6, 7], // 0: Coastline
+            [8, 9, 10, 11, 12, 13, 14, 15], // 1: Clear
+            [16, 17, 18, 19, 20, 21, 22, 23], // 2: Cliff
         ];
         info.templatesByType = {
             "Coastline": [],
+            "Cliff": [],
         };
         for (const templateName of Object.keys(info.TemplatePaths).toSorted()) {
             const template = info.TemplatePaths[templateName];
@@ -2197,8 +2283,10 @@ fetch("temperat-info.json")
             template.Name = templateName;
             template.StartDir = letterToDirection(template.StartDir);
             template.EndDir = letterToDirection(template.EndDir);
-            template.StartBorderN = info.borderNs[info.typeNs[template.Type]][template.StartDir];
-            template.EndBorderN = info.borderNs[info.typeNs[template.Type]][template.EndDir];
+            template.Start ??= template.Type;
+            template.End ??= template.Type;
+            template.StartBorderN = info.borderNs[info.typeNs[template.Start]][template.StartDir];
+            template.EndBorderN = info.borderNs[info.typeNs[template.End]][template.EndDir];
             template.MovesX = template.Path[template.Path.length-1].x - template.Path[0].x;
             template.MovesY = template.Path[template.Path.length-1].y - template.Path[0].y;
             template.OffsetX = template.Path[0].x;
@@ -2207,8 +2295,6 @@ fetch("temperat-info.json")
             template.ProgressLow = Math.ceil(template.Progress / 2);
             template.ProgressHigh = Math.floor(template.Progress * 1.5);
             info.templatesByType[template.Type].push(template);
-            // templatesByStartDir[template.StartDir].push(template);
-            // templatesByEndDir[template.EndDir].push(template);
             // Last point has no direction.
             for (let i = 0; i < template.PathND.length - 1; i++) {
                 template.PathND[i].d = calculateDirectionPoints(template.PathND[i], template.PathND[i+1]);
@@ -2222,10 +2308,9 @@ fetch("temperat-info.json")
                 dmr: 1 << reverseDirection(p.d), // direction mask reverse
             }));
         }
-        // info.templatesByStartDir = templatesByStartDir;
-        // info.templatesByEndDir = templatesByEndDir;
 
         ready = true;
         writeSettings({});
-        generate();
+        // Hack: requestAnimationFrame so that the generation status shows up.
+        beginGenerate();
     });
