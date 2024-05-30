@@ -1006,7 +1006,7 @@ function zip2(a, b, f) {
     return c;
 }
 
-function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minimumThickness, debugLabel) {
+function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minimumThickness, bias, debugLabel) {
     if (typeof(debugLabel) === "undefined") {
         debugLabel = "(unlabelled)";
     }
@@ -1059,7 +1059,7 @@ function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minim
                 for (let x = 0; x < size; x++) {
                     const i = y * size + x;
                     if (diff[i] === 1) {
-                        reserveCircleInPlace(landmass, size, x, y, minimumThickness * 2, 1);
+                        reserveCircleInPlace(landmass, size, x, y, minimumThickness * 2, bias);
                     }
                 }
             }
@@ -1070,10 +1070,8 @@ function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minim
 }
 
 // Use to trace paths around terrain features
-function zeroLinesToPaths(elevation, size, type) {
-    type ?? die("type required");
-    const typeN = info.typeNs[type] ?? die(`missing typeNs entry for ${type}`);
-    const permittedTemplates = info.templatesByType[type] ?? die(`missing templatesByType entry for ${type}`);
+// The caller must set type information on the returned paths.
+function zeroLinesToPaths(elevation, size) {
     // There is redundant memory/iteration, but I don't care enough.
 
     // These are really only the signs of the gradients.
@@ -1102,7 +1100,7 @@ function zeroLinesToPaths(elevation, size, type) {
         const points = [];
         let x = sx;
         let y = sy;
-        points.push({x, y, typeN});
+        points.push({x, y});
         do {
             switch (direction) {
             case DIRECTION_R:
@@ -1122,7 +1120,7 @@ function zeroLinesToPaths(elevation, size, type) {
                 gradientV[y * size + x] = 0;
                 break;
             }
-            points.push({x, y, typeN});
+            points.push({x, y});
             const i = y * size + x;
             const r = x < size && gradientH[i] > 0;
             const d = y < size && gradientV[i] < 0;
@@ -1151,8 +1149,6 @@ function zeroLinesToPaths(elevation, size, type) {
         } while (x != sx || y != sy);
         paths.push({
             points,
-            type,
-            permittedTemplates,
         });
     };
     // Trace non-loops (from edge of map)
@@ -1523,7 +1519,19 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
         }
     }
 
-    const templates = path.permittedTemplates;
+    const start = points[0];
+    const end = points[points.length-1];
+    const mainType = path.type ?? die ("Path is missing type");
+    const mainTypeN = info.typeNs[mainType] ?? die(`Bad main type ${mainType}`);
+    const startType = path.startType ?? mainType;
+    const startTypeN = info.typeNs[startType] ?? die(`Bad start type ${startType}`);
+    const endType = path.endType ?? mainType;
+    const endTypeN = info.typeNs[endType] ?? die(`Bad end type ${endType}`);
+    const startBorderN = info.borderNs[startTypeN][path.startDirN];
+    const endBorderN = info.borderNs[endTypeN][path.endDirN];
+
+    const templates = path.permittedTemplates ?? info.templatesByType[path.type] ?? die(`missing templatesByType entry for ${mainType}`);
+;
     const templatesByStartBorder = [];
     const templatesByEndBorder = [];
     const MAX_SCORE = 0xffffffff;
@@ -1558,25 +1566,18 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
     const priorities = new PriorityArray(sizeXYZ).fill(-Infinity);
     const scores = new Uint32Array(sizeXYZ).fill(MAX_SCORE);
 
-    const start = points[0];
-    const end = points[points.length-1];
-    const startBorderN = info.borderNs[start.typeN][path.startDirN];
-    const endBorderN = info.borderNs[end.typeN][path.endDirN];
-
     // Assumes both f and t are in the sizeX/sizeY bounds.
     // Lower (closer to zero) scores are better matches.
     // Higher scores are worse matches.
     // MAX_SCORE means totally unacceptable.
     const scoreTemplate = function(template, fx, fy) {
-        if (fx === start.x && fy === start.y) {
-            if (template.StartBorderN !== startBorderN) {
-                return MAX_SCORE;
-            }
+        const expectStartTypeN = (fx === start.x && fy === start.y) ? startTypeN : mainTypeN;
+        if (template.StartTypeN !== expectStartTypeN) {
+            return MAX_SCORE;
         }
-        if (fx + template.MovesX === end.x && fy + template.MovesY === end.y) {
-            if (template.EndBorderN !== endBorderN) {
-                return MAX_SCORE;
-            }
+        const expectEndTypeN = (fx + template.MovesX === end.x && fy + template.MovesY === end.y) ? endTypeN : mainTypeN;
+        if (template.EndTypeN !== expectEndTypeN) {
+            return MAX_SCORE;
         }
         let deviationAcc = 0;
         let progressionAcc = 0;
@@ -1775,7 +1776,7 @@ function generateMap(params) {
     {
         dump2d("calibrated terrain", elevation, size, size);
     }
-    let landPlan = fixTerrain(elevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumThickness, "landPlan");
+    let landPlan = fixTerrain(elevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumLandSeaThickness, /*bias=*/(params.water < 0.5 ? 1 : -1), "landPlan");
 
     const tiles = new Array(size * size);
     const resources = new Uint8Array(size * size);
@@ -1792,32 +1793,33 @@ function generateMap(params) {
         }
     }
 
-    let coastlines = zeroLinesToPaths(landPlan, size, "Coastline");
+    let coastlines = zeroLinesToPaths(landPlan, size);
     coastlines = coastlines.map(coastline => tweakPath(coastline, size));
     for (const coastline of coastlines) {
-        tilePath(tiles, size, coastline, random, params.minimumThickness);
+        coastline.type = "Coastline";
+        tilePath(tiles, size, coastline, random, params.minimumLandSeaThickness);
     }
 
     if (params.mountains > 0.0) {
-        const sharpness = gridVariance2d(elevation, size, /*mountainSharpnessRadius=*/5).map(v => Math.sqrt(v));
-        dump2d("sharpness", sharpness, size + 1, size + 1);
+        const roughness = gridVariance2d(elevation, size, params.roughnessRadius).map(v => Math.sqrt(v));
+        dump2d("roughness (as standard deviation)", roughness, size + 1, size + 1);
         calibrateHeightInPlace(
-            sharpness,
+            roughness,
             0.0,
-            /*cliffFraction=*/0.5,
+            1.0 - params.roughness,
         );
-        dump2d("sharpness calibrated", sharpness, size + 1, size + 1);
-        const cliffMask = sharpness.map(v => (v >= 0 ? 1 : -1));
+        dump2d("roughness calibrated", roughness, size + 1, size + 1);
+        const cliffMask = roughness.map(v => (v >= 0 ? 1 : -1));
         dump2d("cliffMaskBin", cliffMask, size + 1, size + 1);
         let cliffPlan = landPlan;
         const mountainElevation = elevation.slice();
-        for (let altitude = 1; altitude <= /*maxAltitude=*/8; altitude++) {
+        for (let altitude = 1; altitude <= params.maximumAltitude; altitude++) {
             // Limit mountain area to the existing mountain space (starting with all available land)
             const roominess = calculateRoominess(cliffPlan, size, true);
             let available = 0;
             let total = 0;
             for (let n = 0; n < mountainElevation.length; n++) {
-                if (roominess[n] < /*nestedCliffSpacing=*/4) {
+                if (roominess[n] < params.minimumTerrainContourSpacing) {
                     // Too close to existing cliffs (or coastline)
                     mountainElevation[n] = -1;
                 } else {
@@ -1832,22 +1834,23 @@ function generateMap(params) {
                 1.0 - availableFraction * params.mountains,
             );
             dump2d(`mountains at altitude ${altitude}`, mountainElevation, size, size);
-            cliffPlan = fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumThickness, "cliffPlan");
-            let cliffs = zeroLinesToPaths(cliffPlan, size, "Cliff");
+            cliffPlan = fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumMountainThickness, /*bias=*/-1, "cliffPlan");
+            let cliffs = zeroLinesToPaths(cliffPlan, size);
             cliffs = maskPaths(cliffs, cliffMask, size + 1);
-            cliffs = cliffs.filter(cliff => cliff.points.length >= /*minCliffLength*/5);
+            cliffs = cliffs.filter(cliff => cliff.points.length >= params.minimumCliffLength);
             if (cliffs.length === 0) {
                 break;
             }
             cliffs = cliffs.map(cliff => tweakPath(cliff, size));
             cliffs.forEach(cliff => {
+                cliff.type = "Cliff";
                 if (!cliff.isLoop) {
-                    cliff.points[0].typeN = info.typeNs["Clear"];
-                    cliff.points[cliff.points.length-1].typeN = info.typeNs["Clear"];
+                    cliff.startType = "Clear";
+                    cliff.endType = "Clear";
                 }
             });
             for (const cliff of cliffs) {
-                tilePath(tiles, size, cliff, random, params.minimumThickness);
+                tilePath(tiles, size, cliff, random, params.minimumMountainThickness);
             }
         }
     }
@@ -2257,12 +2260,18 @@ const settingsMetadata = {
     mirror: {init: 0, type: "int"},
     playersPerRotation: {init: 1, type: "int"},
 
+    wavelengthScale: {init: 1.0, type: "float"},
     water: {init: 0.5, type: "float"},
     mountains: {init: 0.1, type: "float"},
     terrainSmoothing: {init: 4, type: "int"},
     smoothingThreshold: {init: 0.33, type: "float"},
-    minimumThickness: {init: 5, type: "int"},
-    wavelengthScale: {init: 1.0, type: "float"},
+    minimumLandSeaThickness: {init: 5, type: "int"},
+    minimumMountainThickness: {init: 5, type: "int"},
+    maximumAltitude: {init: 8, type: "int"},
+    roughnessRadius: {init: 5, type: "int"},
+    roughness: {init: 0.5, type: "float"},
+    minimumTerrainContourSpacing: {init: 6, type: "int"},
+    minimumCliffLength: {init: 10, type: "int"},
     enforceSymmetry: {init: false, type: "bool"},
 
     createEntities: {init: true, type: "bool"},
@@ -2293,8 +2302,8 @@ export function readSettings() {
     const settings = {};
     for (const settingName of Object.keys(settingsMetadata)) {
         const type = settingsMetadata[settingName].type;
-        const elementName = camelToKebab(settingName);
-        const el = document.getElementById(elementName) ?? die("Missing setting element ${elementName}");
+        const elementName = "setting-" + camelToKebab(settingName);
+        const el = document.getElementById(elementName) ?? die(`Missing setting element ${elementName}`);
         let value;
         switch (type) {
         case "int":
@@ -2318,8 +2327,8 @@ export function readSettings() {
 export function writeSettings(settings) {
     for (const settingName of Object.keys(settingsMetadata)) {
         const type = settingsMetadata[settingName].type;
-        const elementName = camelToKebab(settingName);
-        const el = document.getElementById(elementName) ?? die("Missing setting element ${elementName}");
+        const elementName = "setting-" + camelToKebab(settingName);
+        const el = document.getElementById(elementName) ?? die(`Missing setting element ${elementName}`);
         const value = settings[settingName] ?? settingsMetadata[settingName].init;
         switch (type) {
         case "int":
@@ -2387,7 +2396,7 @@ export function configurePreset(generateRandom) {
     case "lake-district":
         settings.water = 0.2;
         settings.wavelengthScale = 0.2;
-        settings.mountains = 0.7;
+        settings.mountains = 1.0;
         break;
     default:
         die(`Unknown preset ${preset}`);
@@ -2433,7 +2442,7 @@ window.configurePreset = configurePreset;
 window.randomSeed = function() {
     // This isn't great.
     const seed = (Math.random() * 0x100000000) & 0xffffffff;
-    document.getElementById("seed").value = seed;
+    document.getElementById("setting-seed").value = seed;
     console.log(seed);
 };
 
@@ -2484,10 +2493,12 @@ fetch("temperat-info.json")
             template.Name = templateName;
             template.StartDir = letterToDirection(template.StartDir);
             template.EndDir = letterToDirection(template.EndDir);
-            template.Start ??= template.Type;
-            template.End ??= template.Type;
-            template.StartBorderN = info.borderNs[info.typeNs[template.Start]][template.StartDir];
-            template.EndBorderN = info.borderNs[info.typeNs[template.End]][template.EndDir];
+            template.StartType ??= template.Type;
+            template.EndType ??= template.Type;
+            template.StartTypeN = info.typeNs[template.StartType];
+            template.EndTypeN = info.typeNs[template.EndType];
+            template.StartBorderN = info.borderNs[template.StartTypeN][template.StartDir];
+            template.EndBorderN = info.borderNs[template.EndTypeN][template.EndDir];
             template.MovesX = template.Path[template.Path.length-1].x - template.Path[0].x;
             template.MovesY = template.Path[template.Path.length-1].y - template.Path[0].y;
             template.OffsetX = template.Path[0].x;
