@@ -1558,8 +1558,26 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
     const priorities = new PriorityArray(sizeXYZ).fill(-Infinity);
     const scores = new Uint32Array(sizeXYZ).fill(MAX_SCORE);
 
+    const start = points[0];
+    const end = points[points.length-1];
+    const startBorderN = info.borderNs[start.typeN][path.startDirN];
+    const endBorderN = info.borderNs[end.typeN][path.endDirN];
+
     // Assumes both f and t are in the sizeX/sizeY bounds.
+    // Lower (closer to zero) scores are better matches.
+    // Higher scores are worse matches.
+    // MAX_SCORE means totally unacceptable.
     const scoreTemplate = function(template, fx, fy) {
+        if (fx === start.x && fy === start.y) {
+            if (template.StartBorderN !== startBorderN) {
+                return MAX_SCORE;
+            }
+        }
+        if (fx + template.MovesX === end.x && fy + template.MovesY === end.y) {
+            if (template.EndBorderN !== endBorderN) {
+                return MAX_SCORE;
+            }
+        }
         let deviationAcc = 0;
         let progressionAcc = 0;
         const lastPointI = template.RelPathND.length - 1;
@@ -1629,10 +1647,10 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
         priorities.set(fil, -Infinity);
     };
 
-    const sx = points[0].x;
-    const sy = points[0].y;
+    const sx = start.x;
+    const sy = start.y;
     const si = sy * sizeX + sx;
-    const sb = info.borderNs[points[0].typeN][path.startDirN];
+    const sb = startBorderN;
     const sil = borderToZ[sb] * sizeXY + si;
     {
         scores[sil] = 0;
@@ -1697,9 +1715,9 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
 
     // Trace back and update tiles
     {
-        let tx = points[points.length-1].x;
-        let ty = points[points.length-1].y;
-        let tb = info.borderNs[points[points.length-1].typeN][path.endDirN];
+        let tx = end.x;
+        let ty = end.y;
+        let tb = endBorderN;
         let ti = ty * sizeX + tx;
         let til = borderToZ[tb] * sizeXY + ti;
         if (scores[til] === MAX_SCORE) {
@@ -1822,6 +1840,12 @@ function generateMap(params) {
                 break;
             }
             cliffs = cliffs.map(cliff => tweakPath(cliff, size));
+            cliffs.forEach(cliff => {
+                if (!cliff.isLoop) {
+                    cliff.points[0].typeN = info.typeNs["Clear"];
+                    cliff.points[cliff.points.length-1].typeN = info.typeNs["Clear"];
+                }
+            });
             for (const cliff of cliffs) {
                 tilePath(tiles, size, cliff, random, params.minimumThickness);
             }
@@ -2450,6 +2474,7 @@ fetch("temperat-info.json")
         ];
         info.templatesByType = {
             "Coastline": [],
+            "Clear": [],
             "Cliff": [],
         };
         for (const templateName of Object.keys(info.TemplatePaths).toSorted()) {
