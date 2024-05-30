@@ -38,14 +38,21 @@ function dump2d(label, data, w, h, points) {
     canvas.style.width = `${w*6}px`;
     canvas.style.height = `${h*6}px`;
     const ctx = canvas.getContext("2d");
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    const min = Math.min(...data.map(v => (Number.isNaN(v) ? Infinity : v)));
+    const max = Math.max(...data.map(v => (Number.isNaN(v) ? -Infinity : v)));
     const stretch = Math.max(-min, max);
+    const hasNaN = data.some(v => Number.isNaN(v));
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
             let v = data[y * w + x];
-            const r = v < 0 ? (255 * -v / stretch) : 0;
-            const g = v > 0 ? (255 * v / stretch) : 0;
+            const r =
+                  Number.isNaN(v) ? 255
+                                  : v < 0 ? (255 * -v / stretch)
+                                          : 0;
+            const g =
+                  Number.isNaN(v) ? 255
+                                  : v > 0 ? (255 * v / stretch)
+                                          : 0;
             const b = (((x & 4) ^ (y & 4)) ? 1 : 0) * (((x & 16) ^ (y & 16)) ? 96 : 64);
             ctx.fillStyle = `rgb(${r},${g},${b})`;
             ctx.fillRect(x, y, 1, 1);
@@ -60,7 +67,7 @@ function dump2d(label, data, w, h, points) {
         }
     }
     const log = document.createElement("pre");
-    log.textContent = `${label}: ${w} * ${h}; ${min} to ${max}; ${(points ?? null !== null) ? points.length : "[n/a]"} entities`;
+    log.textContent = `${label}: ${w} * ${h}; ${min} to ${max}${hasNaN ? " !!!contains NaN!!!" : ""}; ${(points ?? null !== null) ? points.length : "[n/a]"} entities`;
     debugDiv.append(log);
     debugDiv.append(canvas);
 }
@@ -915,6 +922,81 @@ function fixThinMassesInPlaceFull(input, size, growLand, width) {
     return [thinnest, changesAcc];
 }
 
+// Finds the local variance of points in a 2d grid (using a square sample area).
+// Sample areas are centered on data points, so output is size * size.
+function variance2d(input, size, radius) {
+    const output = new Float32Array(size * size);
+    for (let cy = 0; cy < size; cy++) {
+        for (let cx = 0; cx < size; cx++) {
+            let total = 0;
+            let samples = 0;
+            for (let ry = -radius; ry <= radius; ry++) {
+                for (let rx = -radius; rx <= radius; rx++) {
+                    const y = cy + ry;
+                    const x = cx + rx;
+                    if (x < 0 || x >= size || y < 0 || y >= size) {
+                        continue;
+                    }
+                    total += input[y * size + x];
+                    samples++;
+                }
+            }
+            const mean = total / samples;
+            let sumOfSquares = 0;
+            for (let ry = -radius; ry <= radius; ry++) {
+                for (let rx = -radius; rx <= radius; rx++) {
+                    const y = cy + ry;
+                    const x = cx + rx;
+                    if (x < 0 || x >= size || y < 0 || y >= size) {
+                        continue;
+                    }
+                    sumOfSquares += (mean - input[y * size + x]) ** 2;
+                }
+            }
+            output[cy * size + cx] = sumOfSquares / samples;
+        }
+    }
+    return output;
+}
+
+// Finds the local variance of points in a 2d grid (using a square sample area).
+// Sample areas are centered on data point corners, so output is (size + 1) * (size + 1).
+function gridVariance2d(input, size, radius) {
+    const outSize = size + 1;
+    const output = new Float32Array(outSize * outSize);
+    for (let cy = 0; cy <= size; cy++) {
+        for (let cx = 0; cx <= size; cx++) {
+            let total = 0;
+            let samples = 0;
+            for (let ry = -radius; ry < radius; ry++) {
+                for (let rx = -radius; rx < radius; rx++) {
+                    const y = cy + ry;
+                    const x = cx + rx;
+                    if (x < 0 || x >= size || y < 0 || y >= size) {
+                        continue;
+                    }
+                    total += input[y * size + x];
+                    samples++;
+                }
+            }
+            const mean = total / samples;
+            let sumOfSquares = 0;
+            for (let ry = -radius; ry < radius; ry++) {
+                for (let rx = -radius; rx < radius; rx++) {
+                    const y = cy + ry;
+                    const x = cx + rx;
+                    if (x < 0 || x >= size || y < 0 || y >= size) {
+                        continue;
+                    }
+                    sumOfSquares += (mean - input[y * size + x]) ** 2;
+                }
+            }
+            output[cy * outSize + cx] = sumOfSquares / samples;
+        }
+    }
+    return output;
+}
+
 function zip2(a, b, f) {
     a.length === b.length || die("arrays do not have equal length");
     const c = a.slice();
@@ -1124,6 +1206,62 @@ function zeroLinesToPaths(elevation, size, type) {
     return paths;
 }
 
+function maskPaths(paths, mask, gridSize) {
+    const newPaths = [];
+    const isGood = function(point) {
+        return mask[point.y * gridSize + point.x] >= 0;
+    };
+    for (const path of paths) {
+        const points = path.points;
+        const isLoop = points[0].x === points[points.length-1].x && points[0].y === points[points.length-1].y;
+        let firstBad;
+        for (firstBad = 0; firstBad < points.length; firstBad++) {
+            if (!isGood(points[firstBad])) {
+                break;
+            }
+        }
+        if (firstBad === points.length) {
+            // The path is entirely within the mask already.
+            newPaths.push(path);
+            continue;
+        }
+        const startAt = isLoop ? firstBad : 0;
+        let i = startAt;
+        const wrapAt = isLoop ? points.length - 1 : points.length;
+        if (wrapAt === 0) {
+            // Single-point path?!
+            die("single point paths should not exist");
+        }
+        startAt < wrapAt || die("assertion failure");
+        let currentPath = null;;
+        do {
+            if (isGood(points[i])) {
+                if (currentPath === null) {
+                    currentPath = Object.assign({}, path, {points: []});
+                }
+                currentPath.points.push(points[i])
+            } else {
+                if (currentPath !== null) {
+                    if (currentPath.points.length > 1) {
+                        newPaths.push(currentPath);
+                    }
+                    currentPath = null;
+                }
+            }
+            i++;
+            if (i === wrapAt) {
+                i = 0;
+            }
+        } while (i !== startAt);
+        if (currentPath !== null) {
+            if (currentPath.points.length > 1) {
+                newPaths.push(currentPath);
+            }
+        }
+    }
+    return newPaths;
+}
+
 function tweakPath(path, size) {
     size ?? die("need size");
     const points = path.points;
@@ -1176,9 +1314,6 @@ function tweakPath(path, size) {
         tweakedPath.startDirN = calculateDirectionPoints(tweakedPath.points[0], tweakedPath.points[1]);
         tweakedPath.endDirN = calculateDirectionPoints(tweakedPath.points[0], tweakedPath.points[1]);
     } else {
-        // TODO: Support non-edge non-loop paths. However, some care is
-        // needed in case they start having the potential to overlap.
-        // (This could perhaps instead be done in the path layout.
         const extend = function(point, extensionLength) {
             const ox = (point.x === 0)    ? -1
                   : (point.x === size) ?  1
@@ -1186,6 +1321,10 @@ function tweakPath(path, size) {
             const oy = (point.y === 0)    ? -1
                   : (point.y === size) ?  1
                   : 0;
+            if (ox === 0 && oy === 0) {
+                // We're not on an edge, so don't extend.
+                return [];
+            }
             const extension = [];
             let newPoint = point;
             for (let i = 0; i < extensionLength; i++) {
@@ -1194,7 +1333,7 @@ function tweakPath(path, size) {
             }
             return extension;
         };
-        // Open paths. Extend to edges.
+        // Open paths. Extend if beyond edges.
         const startExt = extend(points[0], /*extensionLength=*/4).reverse();
         const endExt = extend(points[lst], /*extensionLength=*/4);
         tweakedPath.points = [...startExt, ...points, ...endExt];
@@ -1642,6 +1781,16 @@ function generateMap(params) {
     }
 
     if (params.mountains > 0.0) {
+        const sharpness = gridVariance2d(elevation, size, /*mountainSharpnessRadius=*/5).map(v => Math.sqrt(v));
+        dump2d("sharpness", sharpness, size + 1, size + 1);
+        calibrateHeightInPlace(
+            sharpness,
+            0.0,
+            /*cliffFraction=*/0.5,
+        );
+        dump2d("sharpness calibrated", sharpness, size + 1, size + 1);
+        const cliffMask = sharpness.map(v => (v >= 0 ? 1 : -1));
+        dump2d("cliffMaskBin", cliffMask, size + 1, size + 1);
         let cliffPlan = landPlan;
         const mountainElevation = elevation.slice();
         for (let altitude = 1; altitude <= /*maxAltitude=*/8; altitude++) {
@@ -1667,6 +1816,8 @@ function generateMap(params) {
             dump2d(`mountains at altitude ${altitude}`, mountainElevation, size, size);
             cliffPlan = fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumThickness, "cliffPlan");
             let cliffs = zeroLinesToPaths(cliffPlan, size, "Cliff");
+            cliffs = maskPaths(cliffs, cliffMask, size + 1);
+            cliffs = cliffs.filter(cliff => cliff.points.length >= /*minCliffLength*/5);
             if (cliffs.length === 0) {
                 break;
             }
