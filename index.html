@@ -11,13 +11,15 @@
   <body>
     <h1>OpenRA Random Map Generator Prototype</h2>
     <p>Copyright Ashley Newson 2024.</p>
-    <input id="preview-size" type="range" min="0" value="512" max="1024" step="64" onchange="javascript:resizePreview()"><label>Preview size</label><br>
+    <input id="preview-size" type="range" min="0" value="512" max="1024" step="64" onchange="resizePreview()"><label>Preview size</label><br>
     <span id="status-line"></span>
     <span style="visibility:hidden;" id="save-links">
       <a id="saveBin" download="map.bin" href='#'>Save map.bin</a>
       <a id="saveYaml" download="map.yaml" href='#'>Save map.yaml</a>
       <a id="savePng" download="map.png" href='#'>Save map.png</a>
     </span>
+    <br>
+    <a id="linkToMap" href='#'>Link to this map</a>
     <br>
     <div>
       <canvas style="border: 8px solid;" id="canvas" width="64" height="64"></canvas>
@@ -31,9 +33,9 @@
       }
       resizePreview();
     </script>
-    <button onclick="javascript:beginGenerate()">Generate</button>
-    <button onclick="javascript:randomSeed();beginGenerate();">Generate with random seed</button>
-    <select id="preset" onchange="javascript:configurePreset(true);">
+    <button onclick="beginGenerate()">Generate</button>
+    <button onclick="randomSeed();beginGenerate();">Generate with random seed</button>
+    <select id="preset" onchange="configurePreset(true);">
       <option value="placeholder" selected>Generate random from preset</option>
       <option value="---">---</option>
       <option value="random">Random preset</option>
@@ -77,18 +79,20 @@
     <input id="setting-spawn-build-size"><label>Spawn build size</label><br>
     <input id="setting-spawn-mines"><label>Number of spawn ore mines</label><br>
     <input id="setting-spawn-ore"><label>Spawn ore size</label><br>
-    <input id="setting-max-expansions"><label>Max expansion count</label><br>
-    <input id="setting-min-expansion-size"><label>Min expansion size</label><br>
-    <input id="setting-max-expansion-size"><label>Max expansion size</label><br>
+    <input id="setting-maximum-expansions"><label>Maximum expansion count</label><br>
+    <input id="setting-minimum-expansion-size"><label>Minimum expansion size</label><br>
+    <input id="setting-maximum-expansion-size"><label>Maximum expansion size</label><br>
     <input id="setting-expansion-inner"><label>Expansion inner size</label><br>
     <input id="setting-expansion-border"><label>Expansion border size</label><br>
     <input id="setting-expansion-mines"><label>Expansion extra mine weight</label><br>
     <input id="setting-expansion-ore"><label>Expansion ore size</label><br>
-    <input id="setting-rock-weight"><label>Rock weight</label><br>
-    <input id="setting-rock-size"><label>Rock size</label><br>
-    <input id="setting-max-buildings"><label>Max neutral building count</label><br>
+    <input id="setting-maximum-buildings"><label>Maximum neutral building count</label><br>
 
-    <pre id="description"></pre>
+    <button onclick="settingsToJson()">Dump settings to JSON</button>
+    <button onclick="jsonToSettings(false)">Load settings from JSON</button>
+    <button onclick="jsonToSettings(true)">Load and generate</button>
+    <br>
+    <textarea id="settings-json"></textarea>
     <hr>
     <h3>Debugging information</h3>
     <div id="debug"></div>

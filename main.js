@@ -563,8 +563,6 @@ function zoneColor(type) {
     switch(type) {
     case "mine":
         return "orange";
-    case "rock":
-        return "brown";
     default:
         die(`unknown zone type "${type}"`);
     }
@@ -611,19 +609,6 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
     default:
         die("Bad feature ring type");
     }
-    {
-        const rocks = (random.f32() * circumference * params.rockWeight) | 0;
-        for (let i = 0; i < rocks && ringBudget >= params.rockSize; i++) {
-            const radius = 4 + (random.f32() * params.rockSize) | 0;
-            const feature = {
-                type: "rock",
-                radius,
-                size: radius * 2 - 1,
-            };
-            ring.push(feature);
-            ringBudget -= feature.size;
-        }
-    }
     while (ringBudget > 0) {
         const feature = {
             type: "spacer",
@@ -663,29 +648,6 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
                     debugColor: zoneColor(feature.type),
                 });
                 angle += (feature.radius - 1) * anglePerUnit;
-            }
-            break;
-        case "rock":
-            {
-                const r =
-                      radius2 - radius1 <= feature.size
-                      ? (radius1 + radius2) / 2
-                      : feature.radius + radius1 + random.f32() * (radius2 - radius1 - feature.radius * 2);
-                angle += anglePerUnit * 2;
-                for (let i = 2; i < feature.size - 2; i++) {
-                    const rx = r * Math.cos(angle);
-                    const ry = r * Math.sin(angle);
-                    features.push({
-                        x: Math.round(location.x + rx) | 0,
-                        y: Math.round(location.y + ry) | 0,
-                        type: feature.type,
-                        radius: 1,
-                        debugRadius: 1,
-                        debugColor: zoneColor(feature.type),
-                    });
-                    angle += anglePerUnit;
-                }
-                angle += anglePerUnit * 2;
             }
             break;
         }
@@ -1910,17 +1872,17 @@ function generateMap(params) {
         entities.push(...players);
 
         // Expansions
-        for (let i = 0; i < params.maxExpansions ?? 0; i++) {
+        for (let i = 0; i < (params.maximumExpansions ?? 0); i++) {
             roominess = calculateRoominess(roominess, size);
             dump2d(`expansion roominess ${i}`, roominess, size, size);
-            const templateExpansion = findRandomMax(random, roominess, size, params.maxExpansionSize + params.expansionBorder);
+            const templateExpansion = findRandomMax(random, roominess, size, params.maximumExpansionSize + params.expansionBorder);
             const room = templateExpansion.value - 1;
             let radius2 = room - params.expansionBorder;
-            if (radius2 < params.minExpansionSize) {
+            if (radius2 < params.minimumExpansionSize) {
                 break;
             }
-            if (radius2 > params.maxExpansionSize) {
-                radius2 = params.maxExpansionSize;
+            if (radius2 > params.maximumExpansionSize) {
+                radius2 = params.maximumExpansionSize;
             }
             const radius1 = Math.min(Math.min(params.expansionInner, room), radius2);
 
@@ -1940,7 +1902,7 @@ function generateMap(params) {
 
         // Neutral buildings
         {
-            const buildings = (params.maxBuildings ?? 0 !== 0) ? random.u32() % (params.maxBuildings + 1) : 0;
+            const buildings = (params.maximumBuildings ?? 0 !== 0) ? random.u32() % (params.maximumBuildings + 1) : 0;
             for (let i = 0; i < buildings; i++) {
                 roominess = calculateRoominess(roominess, size);
                 dump2d(`building roominess ${i}`, roominess, size, size);
@@ -2191,10 +2153,12 @@ export function generate() {
 
     const settings = readSettings();
 
+    const linkToMap = document.getElementById("linkToMap");
+    history.replaceState({}, "", location.origin + location.pathname + "?settings=" + btoa(JSON.stringify(settings)));
+    linkToMap.href = location.href;
+
     const map = generateMap(settings);
     window.map = map;
-
-    document.getElementById("description").textContent = JSON.stringify(settings, null, 2);
 
     const size = settings.size;
 
@@ -2282,16 +2246,14 @@ const settingsMetadata = {
     spawnBuildSize: {init: 8, type: "int"},
     spawnMines: {init: 3, type: "int"},
     spawnOre: {init: 3, type: "int"},
-    maxExpansions: {init: 4, type: "int"},
-    minExpansionSize: {init: 2, type: "int"},
-    maxExpansionSize: {init: 12, type: "int"},
+    maximumExpansions: {init: 4, type: "int"},
+    minimumExpansionSize: {init: 2, type: "int"},
+    maximumExpansionSize: {init: 12, type: "int"},
     expansionInner: {init: 4, type: "int"},
     expansionBorder: {init: 4, type: "int"},
     expansionMines: {init: 0.02, type: "float"},
     expansionOre: {init: 5, type: "int"},
-    rockWeight: {init: 0.1, type: "float"},
-    rockSize: {init: 4, type: "int"},
-    maxBuildings: {init: 3, type: "int"},
+    maximumBuildings: {init: 3, type: "int"},
 };
 
 function camelToKebab(str) {
@@ -2446,6 +2408,25 @@ window.randomSeed = function() {
     console.log(seed);
 };
 
+window.settingsToJson = function() {
+    try {
+        document.getElementById("settings-json").value = JSON.stringify(readSettings(), null, 2);
+    } catch (err) {
+        alert("Could not dump settings to JSON:\n" + err.message);
+    }
+};
+window.jsonToSettings = function(shouldGenerate) {
+    try {
+        writeSettings(JSON.parse(document.getElementById("settings-json").value));
+    } catch (err) {
+        alert("Could not load settings from JSON:\n" + err.message);
+        return;
+    }
+    if (shouldGenerate) {
+        beginGenerate();
+    }
+};
+
 fetch("temperat-info.json")
     .then((response) => response.json())
     .then((data) => {
@@ -2522,7 +2503,12 @@ fetch("temperat-info.json")
         }
 
         ready = true;
-        writeSettings({});
+        const base64Settings = (new URLSearchParams(location.search)).get("settings");
+        if (base64Settings !== null) {
+            writeSettings(JSON.parse(atob(base64Settings)));
+        } else {
+            writeSettings({});
+        }
         // Hack: requestAnimationFrame so that the generation status shows up.
         beginGenerate();
     });
