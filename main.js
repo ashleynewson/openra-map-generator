@@ -9,6 +9,7 @@ window.debugUtils = {
 
 let ready = false;
 let info;
+let entityInfo;
 const codeMap = {};
 
 const debugDiv = document.getElementById("debug");
@@ -1933,47 +1934,11 @@ function generateMap(params) {
                         params.weightOilb,
                     ],
                 );
-                switch(templateBuilding.type) {
-                case "fcom":
-                    templateBuilding.debugRadius = 1.5;
-                    templateBuilding.debugColor = "rgb(0, 0, 255)";
-                    break;
-                case "hosp":
-                    templateBuilding.debugRadius = 1.5;
-                    templateBuilding.debugColor = "rgb(255, 0, 0)";
-                    break;
-                case "bio":
-                    templateBuilding.debugRadius = 1.5;
-                    templateBuilding.debugColor = "rgb(128, 64, 0)";
-                    break;
-                case "oilb":
-                    templateBuilding.debugRadius = 1.5;
-                    templateBuilding.debugColor = "rgb(128, 128, 128)";
-                    break;
-                case "miss":
-                    templateBuilding.debugRadius = 2;
-                    templateBuilding.debugColor = "rgb(255, 255, 0)";
-                    break;
-                default:
-                    die("assertion failure");
-                }
-                // Note that we don't count any dirt beneath the building in these offsets:
-                switch(templateBuilding.type) {
-                case "fcom":
-                case "hosp":
-                case "bio":
-                case "oilb":
-                    // 2-by-2 entity doesn't center on a grid square
-                    templateBuilding.x += 0.5;
-                    templateBuilding.y += 0.5;
-                    break;
-                case "miss":
-                    // 3-by-2 entity doesn't center on a grid square
-                    templateBuilding.y += 0.5;
-                    break;
-                default:
-                    die("assertion failure");
-                }
+                const entityInfo = info.EntityInfo[templateBuilding.type] ?? die("missing entity info");
+                templateBuilding.debugRadius = entityInfo.debugRadius;
+                templateBuilding.debugColor = entityInfo.debugColor;
+                templateBuilding.x += ((entityInfo.w - 1) / 2) % 1.0;
+                templateBuilding.y += ((entityInfo.h - 1) / 2) % 1.0;
                 zones.push(
                     ...rotateAndMirror(
                         [templateBuilding],
@@ -2016,19 +1981,15 @@ function generateMap(params) {
             case "hosp":
             case "bio":
             case "oilb":
-                entities.push({
-                    type: zone.type,
-                    owner: "Neutral",
-                    x: (zone.x - 0.5) | 0,
-                    y: (zone.y - 0.5) | 0,
-                });
-                break;
             case "miss":
+                const entityInfo = info.EntityInfo[zone.type];
+                const x = zone.x - ((entityInfo.w - 1) / 2);
+                const y = zone.y - ((entityInfo.h - 1) / 2);
                 entities.push({
                     type: zone.type,
                     owner: "Neutral",
-                    x: (zone.x - 1) | 0,
-                    y: (zone.y - 0.5) | 0,
+                    x: x | 0,
+                    y: y | 0,
                 });
                 break;
             // Default ignore
@@ -2106,6 +2067,7 @@ function generateMap(params) {
 
     // Compilation
     const map = {
+        size,
         random,
         elevation,
         tiles: tiles,
@@ -2221,6 +2183,55 @@ Players:
     return map;
 }
 
+function createPreview(map, ctx) {
+    const size = map.size;
+    // Generate preview
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const i = y * size + x;
+            if (map.resources[i] === 0) {
+                ctx.fillStyle = terrainColor(map.types[i]);
+            } else {
+                switch (map.resources[i]) {
+                case 1:
+                    ctx.fillStyle = "#948060";
+                    break;
+                case 2:
+                    ctx.fillStyle = "#8470ff";
+                    break;
+                default:
+                    ctx.fillStyle = "black";
+                    break;
+                }
+            }
+            // ctx.fillStyle = "rgb(0, "+(map.elevation[y * size + x]*5000+128)+", 0)";
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    for (const entity of map.entities) {
+        const entityInfo =
+            info.EntityInfo[entity.type]
+                ?? {shape: [[0, 0]], terrainType: null};
+        if (entityInfo.terrainType !== null) {
+            ctx.fillStyle = terrainColor(entityInfo.terrainType);
+        } else {
+            ctx.fillStyle = "white";
+        }
+        for (const [mx, my] of entityInfo.shape) {
+            ctx.fillRect(entity.x + mx, entity.y + my, 1, 1);
+        }
+    }
+    for (const player of map.players) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.fillStyle = "#808080";
+        ctx.beginPath();
+        ctx.arc(player.x + 0.5, player.y + 0.5, 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fill();
+    }
+}
+
 export function generate() {
     if (!ready) return;
 
@@ -2250,39 +2261,7 @@ export function generate() {
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, size, size);
-
-    // Generate preview
-    for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-            const i = y * size + x;
-            if (map.resources[i] === 0) {
-                ctx.fillStyle = terrainColor(map.types[i]);
-            } else {
-                switch (map.resources[i]) {
-                case 1:
-                    ctx.fillStyle = "#948060";
-                    break;
-                case 2:
-                    ctx.fillStyle = "#8470ff";
-                    break;
-                default:
-                    ctx.fillStyle = "black";
-                    break;
-                }
-            }
-            // ctx.fillStyle = "rgb(0, "+(map.elevation[y * size + x]*5000+128)+", 0)";
-            ctx.fillRect(x, y, 1, 1);
-        }
-    }
-    for (const player of map.players) {
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 2;
-        ctx.fillStyle = "#808080";
-        ctx.beginPath();
-        ctx.arc(player.x + 0.5, player.y + 0.5, 2, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.fill();
-    }
+    createPreview(map, ctx);
 
     {
         const blob = new Blob([map.bin.data], {type: 'application/octet-stream'});
@@ -2520,9 +2499,11 @@ window.jsonToSettings = function(shouldGenerate) {
     }
 };
 
-fetch("temperat-info.json")
-    .then((response) => response.json())
-    .then((data) => {
+Promise.all([
+    fetch("temperat-info.json")
+        .then((response) => response.json()),
+])
+    .then(([data]) => {
         info = data;
         window.info = info;
         info.codeMap = codeMap;
@@ -2593,6 +2574,25 @@ fetch("temperat-info.json")
                 dm: 1 << p.d, // direction mask
                 dmr: 1 << reverseDirection(p.d), // direction mask reverse
             }));
+        }
+
+        for (const entityType of Object.keys(info.EntityInfo).toSorted()) {
+            const entity = info.EntityInfo[entityType];
+            entity.type = entityType;
+            // Note that we don't count any dirt beneath the building in these sizes:
+            entity.w ??= 1;
+            entity.h ??= 1;
+            entity.debugColor ??= "white";
+            entity.debugRadius ??= 1;
+            entity.terrainType ??= null;
+            if (typeof(entity.shape) === "undefined") {
+                entity.shape = [];
+                for (let y = 0; y < entity.h; y++) {
+                    for (let x = 0; x < entity.w; x++) {
+                        entity.shape.push([x, y]);
+                    }
+                }
+            }
         }
 
         ready = true;

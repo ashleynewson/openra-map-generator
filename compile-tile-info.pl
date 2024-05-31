@@ -9,11 +9,13 @@ use Readonly;
 
 Readonly my $tileset_yaml => "temperat.yaml";
 Readonly my $template_paths_yaml => "temperat-template-paths.yaml";
+Readonly my $entity_info_yaml => "entity-info.yaml";
 Readonly my $output_yaml => "temperat-info.yaml";
 Readonly my $output_json => "temperat-info.json";
 
 my $tileset = LoadFile($tileset_yaml);
 my $template_paths = LoadFile($template_paths_yaml);
+my $entity_info = LoadFile($entity_info_yaml);
 
 my $tile_info = {};
 
@@ -54,6 +56,7 @@ my $output = {
     Tileset => $tileset,
     TileInfo => $tile_info,
     TemplatePaths => $template_paths,
+    EntityInfo => $entity_info,
 };
 
 DumpFile($output_yaml, $output);
