@@ -172,7 +172,7 @@ function perlinNoise2d(random, size) {
     const D = 1 / 4;
     for (let y = 0; y <= size; y++) {
         for (let x = 0; x <= size; x++) {
-            const phase = 2 * Math.PI * random.f32();
+            const phase = 2 * Math.PI * random.f32x();
             const vx = Math.cos(phase);
             const vy = Math.sin(phase);
             if (x > 0 && y > 0) {
@@ -261,8 +261,8 @@ function fractalNoise2d(params) {
         const sub_noise = perlinNoise2d(random, sub_size);
         // Offsets should align to grid.
         // (current implementation has bias.)
-        const offsetX = (random.f32() * wavelength) | 0;
-        const offsetY = (random.f32() * wavelength) | 0;
+        const offsetX = (random.f32x() * wavelength) | 0;
+        const offsetY = (random.f32x() * wavelength) | 0;
         for (let y = 0; y < size; y++) {
             for (let x = 0; x < size; x++) {
                 noise[y * size + x] += 
@@ -592,9 +592,9 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
         }
         break;
     case "expansion":
-        const mines = 1 + ((random.f32() * circumference * params.expansionMines) | 0);
+        const mines = 1 + ((random.f32x() * circumference * params.expansionMines) | 0);
         for (let i = 0; i < mines && ringBudget > 0; i++) {
-            const radius = (random.f32() * params.expansionOre) | 0;
+            const radius = (random.f32x() * params.expansionOre) | 0;
             const feature = {
                 type: "mine",
                 radius,
@@ -622,7 +622,7 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
     random.shuffleInPlace(ring);
     // The feature list always starts on a boundary, so avoid that
     // bias by using a random start angle.
-    let angle = random.f32() * Math.PI * 2;
+    let angle = random.f32x() * Math.PI * 2;
     let anglePerUnit = Math.PI * 2 / circumference;
     for (let feature of ring) {
         switch (feature.type) {
@@ -636,7 +636,7 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
                 const r =
                       radius2 - radius1 <= feature.size
                       ? (radius1 + radius2) / 2
-                      : feature.radius + radius1 + random.f32() * (radius2 - radius1 - feature.radius * 2);
+                      : feature.radius + radius1 + random.f32x() * (radius2 - radius1 - feature.radius * 2);
                 const rx = r * Math.cos(angle);
                 const ry = r * Math.sin(angle);
                 features.push({
@@ -1826,10 +1826,18 @@ function generateMap(params) {
         for (let n = 0; n < tiles.length; n++) {
             zoneable[n] = (codeMap[tiles[n]].Type === 'Clear') ? 1 : -1;
         }
+        if (params.rotations > 1 || params.mirror !== 0) {
+            // Reserve the center of the map - otherwise it will mess with rotations
+            const midPoint = (size >> 1) * (size + 1);
+            zoneable[midPoint] = -1;
+            zoneable[midPoint + 1] = -1;
+            zoneable[midPoint + size] = -1;
+            zoneable[midPoint + size + 1] = -1;
+        }
         let roominess = calculateRoominess(zoneable, size);
 
         // Spawn generation
-        for (let iteration = 0; iteration < params.playersPerRotation; iteration++) {
+        for (let iteration = 0; iteration < params.players; iteration++) {
             roominess = calculateRoominess(roominess, size);
             const spawnPreference = calculateSpawnPreferences(roominess, size, params.centralReservation, params.spawnRegionSize, params.mirror);
             dump2d("zoneable", zoneable, size, size);
@@ -1902,8 +1910,12 @@ function generateMap(params) {
 
         // Neutral buildings
         {
-            const buildings = (params.maximumBuildings ?? 0 !== 0) ? random.u32() % (params.maximumBuildings + 1) : 0;
-            for (let i = 0; i < buildings; i++) {
+            params.maximumBuildings >= params.minimumBuildings || die("maximumBuildings must be at least minimumBuildings");
+            const targetBuildingCount =
+                (params.maximumBuildings ?? 0 !== 0)
+                    ? params.minimumBuildings + random.u32() % (params.maximumBuildings + 1 - params.minimumBuildings)
+                    : 0;
+            for (let i = 0; i < targetBuildingCount; i++) {
                 roominess = calculateRoominess(roominess, size);
                 dump2d(`building roominess ${i}`, roominess, size, size);
                 const templateBuilding = findRandomMax(random, roominess, size, 3);
@@ -1911,8 +1923,57 @@ function generateMap(params) {
                     break;
                 }
                 templateBuilding.radius = 2;
-                templateBuilding.debugRadius = 2;
-                templateBuilding.debugColor = "blue";
+                templateBuilding.type = random.pickWeighted(
+                    ["fcom", "hosp", "miss", "bio", "oilb"],
+                    [
+                        params.weightFcom,
+                        params.weightHosp,
+                        params.weightMiss,
+                        params.weightBio,
+                        params.weightOilb,
+                    ],
+                );
+                switch(templateBuilding.type) {
+                case "fcom":
+                    templateBuilding.debugRadius = 1.5;
+                    templateBuilding.debugColor = "rgb(0, 0, 255)";
+                    break;
+                case "hosp":
+                    templateBuilding.debugRadius = 1.5;
+                    templateBuilding.debugColor = "rgb(255, 0, 0)";
+                    break;
+                case "bio":
+                    templateBuilding.debugRadius = 1.5;
+                    templateBuilding.debugColor = "rgb(128, 64, 0)";
+                    break;
+                case "oilb":
+                    templateBuilding.debugRadius = 1.5;
+                    templateBuilding.debugColor = "rgb(128, 128, 128)";
+                    break;
+                case "miss":
+                    templateBuilding.debugRadius = 2;
+                    templateBuilding.debugColor = "rgb(255, 255, 0)";
+                    break;
+                default:
+                    die("assertion failure");
+                }
+                // Note that we don't count any dirt beneath the building in these offsets:
+                switch(templateBuilding.type) {
+                case "fcom":
+                case "hosp":
+                case "bio":
+                case "oilb":
+                    // 2-by-2 entity doesn't center on a grid square
+                    templateBuilding.x += 0.5;
+                    templateBuilding.y += 0.5;
+                    break;
+                case "miss":
+                    // 3-by-2 entity doesn't center on a grid square
+                    templateBuilding.y += 0.5;
+                    break;
+                default:
+                    die("assertion failure");
+                }
                 zones.push(
                     ...rotateAndMirror(
                         [templateBuilding],
@@ -1950,6 +2011,25 @@ function generateMap(params) {
                 reserveCircleInPlace(resources, size, zone.x, zone.y, zone.radius, 2);
                 // Density seems to be a constant in map format
                 reserveCircleInPlace(resourceDensities, size, zone.x, zone.y, zone.radius, 3);
+                break;
+            case "fcom":
+            case "hosp":
+            case "bio":
+            case "oilb":
+                entities.push({
+                    type: zone.type,
+                    owner: "Neutral",
+                    x: (zone.x - 0.5) | 0,
+                    y: (zone.y - 0.5) | 0,
+                });
+                break;
+            case "miss":
+                entities.push({
+                    type: zone.type,
+                    owner: "Neutral",
+                    x: (zone.x - 1) | 0,
+                    y: (zone.y - 0.5) | 0,
+                });
                 break;
             // Default ignore
             }
@@ -2034,6 +2114,7 @@ function generateMap(params) {
         resourceDensities,
         bin: {},
         players,
+        entities,
     };
 
     map.bin.u8format = 2;
@@ -2150,6 +2231,7 @@ export function generate() {
     const saveBin = document.getElementById("saveBin");
     const saveYaml = document.getElementById("saveYaml");
     const savePng = document.getElementById("savePng");
+    const saveSettings = document.getElementById("saveSettings");
 
     const settings = readSettings();
 
@@ -2211,6 +2293,11 @@ export function generate() {
         saveYaml.href = URL.createObjectURL(blob);
     }
     {
+        const content = location.href + "\n\n" + JSON.stringify(readSettings(), null, 2) + "\n";
+        const blob = new Blob([content], {type: 'text/plain'});
+        saveSettings.href = URL.createObjectURL(blob);
+    }
+    {
         savePng.href = canvas.toDataURL();
     }
 
@@ -2222,7 +2309,7 @@ const settingsMetadata = {
     size: {init: 96, type: "int"},
     rotations: {init: 2, type: "int"},
     mirror: {init: 0, type: "int"},
-    playersPerRotation: {init: 1, type: "int"},
+    players: {init: 1, type: "int"},
 
     wavelengthScale: {init: 1.0, type: "float"},
     water: {init: 0.5, type: "float"},
@@ -2253,7 +2340,13 @@ const settingsMetadata = {
     expansionBorder: {init: 4, type: "int"},
     expansionMines: {init: 0.02, type: "float"},
     expansionOre: {init: 5, type: "int"},
+    minimumBuildings: {init: 0, type: "int"},
     maximumBuildings: {init: 3, type: "int"},
+    weightFcom: {init: 1, type: "float"},
+    weightHosp: {init: 1, type: "float"},
+    weightMiss: {init: 1, type: "float"},
+    weightBio: {init: 0, type: "float"},
+    weightOilb: {init: 3, type: "float"},
 };
 
 function camelToKebab(str) {
@@ -2326,7 +2419,7 @@ export function configurePreset(generateRandom) {
         size: old.size,
         rotations: old.rotations,
         mirror: old.mirror,
-        playersPerRotation: old.playersPerRotation,
+        players: old.players,
     };
     switch(preset) {
     case "placeholder":

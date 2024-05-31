@@ -17,6 +17,7 @@
       <a id="saveBin" download="map.bin" href='#'>Save map.bin</a>
       <a id="saveYaml" download="map.yaml" href='#'>Save map.yaml</a>
       <a id="savePng" download="map.png" href='#'>Save map.png</a>
+      <a id="saveSettings" download="map-settings.txt" href='#'>Save settings</a>
     </span>
     <br>
     <a id="linkToMap" href='#'>Link to this map</a>
@@ -53,9 +54,9 @@
     <p>Primary settings:</p>
     <input id="setting-seed"><label>Seed</label><br>
     <input id="setting-size"><label>Size</label><br>
-    <input id="setting-rotations"><label>Rotations (minimum 1)</label><br>
-    <input id="setting-mirror"><label>Mirror direction (0 (none), 1, 2, 3, 4)</label><br>
-    <input id="setting-players-per-rotation"><label>Players per rotation</label><br>
+    <input id="setting-rotations"><label>Rotations (minimum 1) (multiplies players and entities)</label><br>
+    <input id="setting-mirror"><label>Mirror direction (0 (none), 1, 2, 3, 4) (doubles players and entities)</label><br>
+    <input id="setting-players"><label>Players</label><br>
     <p>Terrain settings:</p>
     <input id="setting-wavelength-scale"><label>Terrain noise wavelength scale</label><br>
     <input id="setting-water"><label>Water fraction</label><br>
@@ -86,7 +87,13 @@
     <input id="setting-expansion-border"><label>Expansion border size</label><br>
     <input id="setting-expansion-mines"><label>Expansion extra mine weight</label><br>
     <input id="setting-expansion-ore"><label>Expansion ore size</label><br>
+    <input id="setting-minimum-buildings"><label>Minimum neutral building count</label><br>
     <input id="setting-maximum-buildings"><label>Maximum neutral building count</label><br>
+    <input id="setting-weight-fcom"><label>Building weight: Forward Command</label><br>
+    <input id="setting-weight-hosp"><label>Building weight: Hospital</label><br>
+    <input id="setting-weight-miss"><label>Building weight: Communications Center</label><br>
+    <input id="setting-weight-bio"><label>Building weight: Biological Lab</label><br>
+    <input id="setting-weight-oilb"><label>Building weight: Oil Derrick</label><br>
 
     <button onclick="settingsToJson()">Dump settings to JSON</button>
     <button onclick="jsonToSettings(false)">Load settings from JSON</button>

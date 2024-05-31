@@ -69,13 +69,44 @@ export default class Random {
     }
 
     // This is a float with 32 bits of entropy, not actually a 32-bit float!
-    f32() {
+    // Returns a value between 0 and 1 inclusive.
+    f32i() {
         return this.u32() / UINT_MASK;
+    }
+
+    // This is a float with 32 bits of entropy, not actually a 32-bit float!
+    // Returns a value between 0 inclusive and 1 exclusive
+    f32x() {
+        return this.u32() / (0x100000000);
     }
 
     // Has biases for non-factors of 2^32
     pick(array) {
         return array[this.u32() % array.length];
+    }
+
+    // Has biases
+    pickWeighted(array, weights) {
+        const total = weights.reduce((acc, v) => (acc + v));
+        const spin = this.f32x() * total;
+        let i;
+        let acc = 0;
+        for (i = 0; i < weights.length; i++) {
+            acc += weights[i];
+            if (spin < acc) {
+                return array[i];
+            }
+        }
+        // This might be possible due to floating point precision loss
+        // (in rare cases). Or we might have been given rubbish
+        // weights. Return anything > 0.
+        for (i = 0; i < weights.length; i++) {
+            if (weights[i] > 0) {
+                return array[i];
+            }
+        }
+        // All <= 0!
+        return this.pick(array);
     }
 
     // Has biases.
