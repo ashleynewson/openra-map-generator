@@ -31,3 +31,105 @@ gmine:
   w: 1
   h: 1
   terrainType: Gems
+
+t01:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t02:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t03:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+# t04 doesn't exist
+t05:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t06:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t07:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t08:
+  w: 1
+  h: 1
+  terrainType: Tree
+# t09 doesn't exist
+t08:
+  w: 2
+  h: 2
+  terrainType: Tree
+t10:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t11:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t12:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t13:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t14:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t15:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t16:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t17:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+tc01:
+  w: 2
+  h: 2
+  terrainType: Tree
+tc02:
+  w: 2
+  h: 2
+  terrainType: Tree
+tc03:
+  w: 2
+  h: 2
+  terrainType: Tree
+tc04:
+  w: 3
+  h: 2
+  OffsetY: -1
+  terrainType: Tree
+tc05:
+  w: 3
+  h: 3
+  terrainType: Tree

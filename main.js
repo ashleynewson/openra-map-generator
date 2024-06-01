@@ -1344,20 +1344,15 @@ function reverseDirection(direction) {
 }
 
 function paintTemplate(tiles, size, px, py, template) {
-    for (let ty = 0; ty < template.SizeY; ty++) {
-        for (let tx = 0; tx < template.SizeX; tx++) {
-            const x = px + tx;
-            const y = py + ty;
-            if (x < 0 || x >= size || y < 0 || y >= size) {
-                continue;
-            }
-            const ti = ty * template.SizeX + tx;
-            if (typeof(template.Tiles[ti]) === "undefined") {
-                continue;
-            }
-            const i = y * size + x;
-            tiles[i] = `t${template.Id}i${ti}`;
+    for (const [tx, ty] of template.Shape) {
+        const x = px + tx;
+        const y = py + ty;
+        if (x < 0 || x >= size || y < 0 || y >= size) {
+            continue;
         }
+        const ti = ty * template.SizeX + tx;
+        const i = y * size + x;
+        tiles[i] = `t${template.Id}i${ti}`;
     }
 }
 
@@ -1698,6 +1693,168 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
     }
 }
 
+// If there's a template which doesn't have a tile in its top-left
+// corner, this method has biases against it.
+function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
+    const obstaclesByArea = [];
+    for (const obstacle of permittedObstacles) {
+        obstaclesByArea[obstacle.Area] ??= [];
+        obstaclesByArea[obstacle.Area].push(obstacle);
+    }
+    const obstacleTotalArea = permittedObstacles.map(t => t.Area).reduce((a, b) => a + b);
+    const obstacleTotalWeight = permittedObstacles.map(t => t.Weight).reduce((a, b) => a + b);
+    const sizeSize = size * size;
+    const maskIndices = new Uint32Array(sizeSize);
+    const remaining = new Uint8Array(sizeSize);
+    let maskArea = 0;
+    for (let n = 0; n < sizeSize; n++) {
+        if (mask[n] > 0) {
+            remaining[n] = 1;
+            maskIndices[maskArea] = n;
+            maskArea++;
+        } else {
+            remaining[n] = 0;
+        }
+    }
+    const indices = new Uint32Array(sizeSize);
+    let indexCount;
+
+    const refreshIndices = function() {
+        indexCount = 0;
+        for (const n of maskIndices) {
+            if (remaining[n]) {
+                indices[indexCount] = n;
+                indexCount++;
+            }
+        }
+        random.shuffleInPlace(indices, indexCount);
+    };
+    const reserveObstacle = function(px, py, shape) {
+        for (const [ox, oy] of shape) {
+            const x = px + ox;
+            const y = py + oy;
+            if (x < 0 || x >= size || y < 0 || y >= size) {
+                continue;
+            }
+            const i = y * size + x;
+            if (!remaining[i]) {
+                // Can't reserve
+                return false;
+            }
+        }
+        // Can reserve
+        for (const [ox, oy] of shape) {
+            const x = px + ox;
+            const y = py + oy;
+            if (x < 0 || x >= size || y < 0 || y >= size) {
+                continue;
+            }
+            const i = y * size + x;
+            remaining[i] = 0;
+        }
+        return true;
+    };
+
+    for (const obstacles of obstaclesByArea.reverse()) {
+        if (typeof(obstacles) === "undefined") {
+            continue;
+        }
+        const obstacleArea = obstacles[0].Area;
+        const obstacleWeights = obstacles.map(o => o.Weight);
+        const obstacleWeightForArea = obstacleWeights.reduce((a, b) => a + b);
+        let remainingQuota =
+            obstacleArea === 1
+                ? Infinity
+                : (maskArea * obstacleWeightForArea / obstacleTotalWeight);
+        refreshIndices();
+        for (const n of indices) {
+            const obstacle = random.pickWeighted(obstacles, obstacleWeights);
+            const py = (n / size) | 0;
+            const px = (n % size) | 0;
+            if (reserveObstacle(px, py, obstacle.Shape)) {
+                if (obstacle.Template) {
+                    paintTemplate(tiles, size, px, py, obstacle.Template);
+                } else if (obstacle.Entity) {
+                    entities.push({
+                        type: obstacle.Entity.type,
+                        owner: "Neutral",
+                        x: px,
+                        y: py,
+                    });
+                } else {
+                    die("assertion failure");
+                }
+            }
+            remainingQuota -= obstacleArea;
+            if (remainingQuota <= 0) {
+                break;
+            }
+        }
+    }
+}
+
+function findPlayableRegions(tiles, size) {
+    const regions = [];
+    const regionMask = new Uint32Array(size * size);
+    const playable = new Uint8Array(size * size);
+    for (let n = 0; n < size * size; n++) {
+        const type = codeMap[tiles[n]].Type;
+        switch (type) {
+        case "Beach":
+        case "Clear":
+        case "Gems":
+        case "Ore":
+        case "Road":
+        case "Rough":
+        case "Water":
+            playable[n] = 1;
+            break;
+        default:
+            playable[n] = 0;
+            break;
+        }
+    }
+    const fill = function(region, startX, startY) {
+        regionMask[startY * size + startX] = region.id;
+        region.area++;
+        let next = [[startX, startY]];
+        const spread = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        while (next.length !== 0) {
+            const current = next;
+            next = [];
+            for (const [cx, cy] of current) {
+                for (const [ox, oy] of spread) {
+                    let x = cx + ox;
+                    let y = cy + oy;
+                    if (x < 0 || x >= size || y < 0 || y >= size) {
+                        continue;
+                    }
+                    const i = y * size + x;
+                    if (regionMask[i] === 0 && playable[i]) {
+                        regionMask[i] = region.id;
+                        region.area++;
+                        next.push([x, y]);
+                    }
+                }
+            }
+        }
+    };
+    for (let startY = 0; startY < size; startY++) {
+        for (let startX = 0; startX < size; startX++) {
+            const startI = startY * size + startX;
+            if (regionMask[startI] === 0 && playable[startI]) {
+                const region = {
+                    area: 0,
+                    id: regions.length + 1,
+                };
+                regions.push(region);
+                fill(region, startX, startY);
+            }
+        }
+    }
+    return [regionMask, regions];
+}
+
 function generateMap(params) {
     const size = params.size ?? die("need size");
 
@@ -1821,11 +1978,34 @@ function generateMap(params) {
     const entities = [];
     const players = [];
 
+    const playableArea = new Uint8Array(size * size);
+    {
+        const [regionMask, regions] = findPlayableRegions(tiles, size);
+        if (regions.length === 0) {
+            die("No regions");
+        }
+        let largest = regions[0];
+        for (const region of regions) {
+            if (region.area > largest.area) {
+                largest = region;
+            }
+        }
+        if (params.denyWalledAreas) {
+            const obstructionMask = regionMask.map(v => (v !== 0 && v !== largest.id));
+            obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.Land, random);
+        }
+        for (let n = 0; n < size * size; n++) {
+            playableArea[n] = (regionMask[n] === largest.id) ? 1 : 0;
+        }
+        dump2d("playable regions", regionMask, size, size);
+        dump2d("chosen playable area", playableArea, size, size);
+    }
+
     if (params.createEntities) {
         const zones = [];
         const zoneable = new Int8Array(size * size);
         for (let n = 0; n < tiles.length; n++) {
-            zoneable[n] = (codeMap[tiles[n]].Type === 'Clear') ? 1 : -1;
+            zoneable[n] = (playableArea[n] && codeMap[tiles[n]].Type === 'Clear') ? 1 : -1;
         }
         if (params.rotations > 1 || params.mirror !== 0) {
             // Reserve the center of the map - otherwise it will mess with rotations
@@ -2171,11 +2351,17 @@ Players:
             entity.owner ?? die("Entity is missing owner");
             entity.x ?? die("Entity is missing location");
             entity.y ?? die("Entity is missing location");
+            const def = info.EntityInfo[entity.type] ?? {
+                OffsetX: 0,
+                OffsetY: 0,
+            };
+            const x = 1 + entity.x + def.OffsetX;
+            const y = 1 + entity.y + def.OffsetY;
             // +1 to x and y to compensate for out-of-bounds
             map.yaml +=
 `\tActor${num++}: ${entity.type}
 \t\tOwner: ${entity.owner}
-\t\tLocation: ${entity.x + 1},${entity.y + 1}
+\t\tLocation: ${x},${y}
 `;
         }
     }
@@ -2211,13 +2397,13 @@ function createPreview(map, ctx) {
     for (const entity of map.entities) {
         const entityInfo =
             info.EntityInfo[entity.type]
-                ?? {shape: [[0, 0]], terrainType: null};
+                ?? {Shape: [[0, 0]], terrainType: null};
         if (entityInfo.terrainType !== null) {
             ctx.fillStyle = terrainColor(entityInfo.terrainType);
         } else {
             ctx.fillStyle = "white";
         }
-        for (const [mx, my] of entityInfo.shape) {
+        for (const [mx, my] of entityInfo.Shape) {
             ctx.fillRect(entity.x + mx, entity.y + my, 1, 1);
         }
     }
@@ -2302,6 +2488,7 @@ const settingsMetadata = {
     roughness: {init: 0.5, type: "float"},
     minimumTerrainContourSpacing: {init: 6, type: "int"},
     minimumCliffLength: {init: 10, type: "int"},
+    denyWalledAreas: {init: true, type: "bool"},
     enforceSymmetry: {init: false, type: "bool"},
 
     createEntities: {init: true, type: "bool"},
@@ -2507,7 +2694,6 @@ Promise.all([
         info = data;
         window.info = info;
         info.codeMap = codeMap;
-        info.sortedIndices = [];
         info.tileCount = 0;
         for (const tiIndex of Object.keys(info.TileInfo)) {
             const ti = info.TileInfo[tiIndex];
@@ -2516,15 +2702,65 @@ Promise.all([
                 codeMap[code] = ti;
             }
             info.tileCount++;
-            info.sortedIndices.push(tiIndex);
         }
-        info.sortedIndices.sort();
         const sizeRe = /^(\d+),(\d+)$/;
-        for (const templateName of Object.keys(info.Tileset.Templates).toSorted()) {
-            const template = info.Tileset.Templates[templateName];
+        for (const template of Object.values(info.Tileset.Templates)) {
             let [, x, y] = template.Size.match(sizeRe);
             template.SizeX = x | 0;
             template.SizeY = y | 0;
+            // This is not necessarily x * y!
+            template.Area = Object.values(template.Tiles).length;
+            template.Shape = [];
+            for (let y = 0; y < template.SizeY; y++) {
+                for (let x = 0; x < template.SizeX; x++) {
+                    const i = y * template.SizeX + x;
+                    if (typeof(template.Tiles[i]) === "undefined") {
+                        continue;
+                    }
+                    template.Shape.push([x, y]);
+                }
+            }
+        }
+        for (const entityName of Object.keys(info.EntityInfo)) {
+            const entity = info.EntityInfo[entityName];
+            entity.type = entityName;
+            // Note that we don't count any dirt beneath the building in these sizes:
+            entity.w ??= 1;
+            entity.h ??= 1;
+            entity.OffsetX ??= 0;
+            entity.OffsetY ??= 0;
+            entity.w |= 0;
+            entity.h |= 0;
+            entity.OffsetX |= 0;
+            entity.OffsetY |= 0;
+            entity.Area = entity.w * entity.h;
+            entity.Shape = [];
+            for (let y = 0; y < entity.h; y++) {
+                for (let x = 0; x < entity.w; x++) {
+                    entity.Shape.push([x, y]);
+                }
+            }
+            entity.debugColor ??= "white";
+            entity.debugRadius ??= 1;
+            entity.terrainType ??= null;
+        }
+        for (const obstacleCategory of Object.values(info.ObstacleInfo)) {
+            for (const obstacle of obstacleCategory) {
+                obstacle.Template = info.Tileset.Templates[obstacle.TemplateName] ?? null;
+                obstacle.Entity = info.EntityInfo[obstacle.EntityName] ?? null;
+                if (obstacle.Template && obstacle.Entity) {
+                    die("Obstacle should be either template or entity - not both.");
+                } else if (obstacle.Template) {
+                    obstacle.Area = obstacle.Template.Area;
+                    obstacle.Shape = obstacle.Template.Shape;
+                } else if (obstacle.Entity) {
+                    obstacle.Area = obstacle.Entity.Area;
+                    obstacle.Shape = obstacle.Entity.Shape;
+                } else {
+                    die("Obstacle have either template or entity.");
+                }
+                obstacle.Weight = Number(obstacle.Weight);
+            }
         }
         info.typeNs = {
             "Coastline": 0,
@@ -2574,25 +2810,6 @@ Promise.all([
                 dm: 1 << p.d, // direction mask
                 dmr: 1 << reverseDirection(p.d), // direction mask reverse
             }));
-        }
-
-        for (const entityType of Object.keys(info.EntityInfo).toSorted()) {
-            const entity = info.EntityInfo[entityType];
-            entity.type = entityType;
-            // Note that we don't count any dirt beneath the building in these sizes:
-            entity.w ??= 1;
-            entity.h ??= 1;
-            entity.debugColor ??= "white";
-            entity.debugRadius ??= 1;
-            entity.terrainType ??= null;
-            if (typeof(entity.shape) === "undefined") {
-                entity.shape = [];
-                for (let y = 0; y < entity.h; y++) {
-                    for (let x = 0; x < entity.w; x++) {
-                        entity.shape.push([x, y]);
-                    }
-                }
-            }
         }
 
         ready = true;

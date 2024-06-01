@@ -110,8 +110,9 @@ export default class Random {
     }
 
     // Has biases.
-    shuffleInPlace(array) {
-        for (let i = array.length; i > 1; i--) {
+    shuffleInPlace(array, len) {
+        len ??= array.length;
+        for (let i = len; i > 1; i--) {
             const swap = this.u32() % i;
             const tmp = array[i-1];
             array[i-1] = array[swap];
