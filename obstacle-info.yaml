@@ -33,10 +33,11 @@ Land:
     Weight: 5
   - TemplateName: "Template@106"
     Weight: 5
-  - TemplateName: "Template@107"
-    Weight: 100
-  - TemplateName: "Template@108"
-    Weight: 100
+  # These have mostly passable terrain
+  # - TemplateName: "Template@107"
+  #   Weight: 100
+  # - TemplateName: "Template@108"
+  #   Weight: 100
   - TemplateName: "Template@109"
     Weight: 100
   - TemplateName: "Template@110"
