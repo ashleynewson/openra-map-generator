@@ -133,3 +133,105 @@ tc05:
   w: 3
   h: 3
   terrainType: Tree
+
+t01.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t02.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t03.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+# t04.husk doesn't exist
+t05.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t06.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t07.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t08.husk:
+  w: 1
+  h: 1
+  terrainType: Tree
+# t09.husk doesn't exist
+t08.husk:
+  w: 2
+  h: 2
+  terrainType: Tree
+t10.husk:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t11.husk:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t12.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t13.husk:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t14.husk:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t15.husk:
+  w: 2
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t16.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+t17.husk:
+  w: 1
+  h: 1
+  OffsetY: -1
+  terrainType: Tree
+tc01.husk:
+  w: 2
+  h: 2
+  terrainType: Tree
+tc02.husk:
+  w: 2
+  h: 2
+  terrainType: Tree
+tc03.husk:
+  w: 2
+  h: 2
+  terrainType: Tree
+tc04.husk:
+  w: 3
+  h: 2
+  OffsetY: -1
+  terrainType: Tree
+tc05.husk:
+  w: 3
+  h: 3
+  terrainType: Tree

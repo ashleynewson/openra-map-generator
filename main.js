@@ -2245,7 +2245,31 @@ function generateMap(params) {
         // const equitability = new Uint8Array(size * size).fill(1);
         const checkPoint = function(x, y, base) {
             const i = y * size + x;
-            return codeMap[tiles[i]].Type === base;
+            switch (base) {
+            case "River":
+            case "Rock":
+            case "Water":
+            case "Water":
+                return true;
+            case "Beach":
+            case "Clear":
+            case "Rough":
+                switch (codeMap[tiles[i]].Type) {
+                case "River":
+                case "Rock":
+                case "Water":
+                case "Water":
+                    return false;
+                case "Beach":
+                case "Clear":
+                case "Rough":
+                    return true;
+                default:
+                    die("ambiguous symmetry policy");
+                }
+            default:
+                die("ambiguous symmetry policy");
+            }
         }
         const checkRotatedPoints = function(x, y, base) {
             switch (params.rotations) {
@@ -2267,6 +2291,7 @@ function generateMap(params) {
                 die("cannot enforce symmetry for rotations other than 1, 2, or 4");
             }
         }
+        const obstructionMask = new Uint8Array(size * size);
         for (let y = 0; y < size; y++) {
             for (let x = 0; x < size; x++) {
                 const i = y * size + x;
@@ -2275,16 +2300,10 @@ function generateMap(params) {
                 if (params.mirror !== 0) {
                     equitable &&= checkRotatedPoints(...mirrorXY(x, y, size, params.mirror), base);
                 }
-                if (!equitable) {
-                    entities.push({
-                        owner: "Neutral",
-                        x,
-                        y,
-                        type: "t01",
-                    });
-                }
+                obstructionMask[i] = equitable ? 0 : 1;
             }
         }
+        obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.FillSymmetry, random);
     }
 
     // Assign missing indexes
@@ -2531,7 +2550,7 @@ const settingsMetadata = {
     wavelengthScale: {init: 1.0, type: "float"},
     water: {init: 0.5, type: "float"},
     mountains: {init: 0.1, type: "float"},
-    forests: {init: 0.1, type: "float"},
+    forests: {init: 0.025, type: "float"},
     terrainSmoothing: {init: 4, type: "int"},
     smoothingThreshold: {init: 0.33, type: "float"},
     minimumLandSeaThickness: {init: 5, type: "int"},
@@ -2563,10 +2582,10 @@ const settingsMetadata = {
     minimumBuildings: {init: 0, type: "int"},
     maximumBuildings: {init: 3, type: "int"},
     weightFcom: {init: 1, type: "float"},
-    weightHosp: {init: 1, type: "float"},
-    weightMiss: {init: 1, type: "float"},
+    weightHosp: {init: 2, type: "float"},
+    weightMiss: {init: 2, type: "float"},
     weightBio: {init: 0, type: "float"},
-    weightOilb: {init: 3, type: "float"},
+    weightOilb: {init: 8, type: "float"},
 };
 
 function camelToKebab(str) {
@@ -2626,14 +2645,43 @@ export function writeSettings(settings) {
 export function configurePreset(generateRandom) {
     let preset = document.getElementById("preset").value;
     document.getElementById("preset").value = "placeholder";
-    if (preset === "random") {
-        const randomPresets = [
-            "basic",
+    let randomPresets = null;
+    switch (preset) {
+    case "random":
+        randomPresets = [
+            "continents",
             "plains",
+            "woodlands",
+            "mountains",
             "wetlands",
             "puddles",
             "oceanic",
+            "lange-islands",
+            "lake-district",
         ];
+        break;
+    case "random-land":
+        randomPresets = [
+            "plains",
+            "woodlands",
+            "mountains",
+        ];
+        break;
+    case "random-land-water":
+        randomPresets = [
+            "continents",
+            "wetlands",
+            "puddles",
+            "oceanic",
+            "lange-islands",
+            "lake-district",
+        ];
+        break;
+    default:
+        // Not random
+        break;
+    }
+    if (randomPresets !== null) {
         preset = randomPresets[(Math.random() * randomPresets.length) | 0];
     }
 
@@ -2645,16 +2693,28 @@ export function configurePreset(generateRandom) {
         mirror: old.mirror,
         players: old.players,
     };
-    switch(preset) {
+    switch (preset) {
     case "placeholder":
         return;
     case "---":
         return;
     case "basic":
         break;
+    case "continents":
+        break;
     case "plains":
         settings.water = 0.0;
         settings.wavelengthScale = 0.2;
+        break;
+    case "woodlands":
+        settings.water = 0.0;
+        settings.wavelengthScale = 0.2;
+        settings.forests = 0.1;
+        break;
+    case "mountains":
+        settings.water = 0.0;
+        settings.wavelengthScale = 0.2;
+        settings.mountains = 0.9;
         break;
     case "wetlands":
         settings.water = 0.5;
@@ -2663,6 +2723,7 @@ export function configurePreset(generateRandom) {
     case "wetlands-narrow":
         settings.water = 0.5;
         settings.wavelengthScale = 0.05;
+        settings.forests = 0.0
         break;
     case "puddles":
         settings.water = 0.2;
@@ -2671,6 +2732,12 @@ export function configurePreset(generateRandom) {
     case "oceanic":
         settings.water = 0.8;
         settings.wavelengthScale = 0.2;
+        settings.forests = 0.0
+        break;
+    case "large-islands":
+        settings.water = 0.75;
+        settings.wavelengthScale = 0.5;
+        settings.forests = 0.0
         break;
     case "lake-district":
         settings.water = 0.2;

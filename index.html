@@ -38,17 +38,24 @@
     <button onclick="randomSeed();beginGenerate();">Generate with random seed</button>
     <select id="preset" onchange="configurePreset(true);">
       <option value="placeholder" selected>Generate random from preset</option>
-      <option value="---">---</option>
-      <option value="random">Random preset</option>
-      <option value="---">---</option>
-      <option value="basic">Basic</option>
-      <option value="---">---</option>
+      <option value="---">--- Random</option>
+      <option value="random">Any</option>
+      <option value="random-land">Land-only</option>
+      <option value="random-land-water">Land & Water</option>
+      <option value="---">--- Land-only</option>
       <option value="plains">Plains</option>
+      <option value="woodlands">Woodlands</option>
+      <option value="mountains">Mountains</option>
+      <option value="---">--- Land & Water</option>
+      <option value="continents">Continents</option>
       <option value="wetlands">Wetlands</option>
-      <option value="wetlands-narrow">Narrow Wetlands (slow)</option>
       <option value="puddles">Puddles</option>
       <option value="oceanic">Oceanic</option>
+      <option value="large-islands">Large Islands</option>
       <option value="lake-district">Lake District</option>
+      <option value="---">---</option>
+      <option value="basic">Basic/default</option>
+      <option value="wetlands-narrow">Narrow Wetlands</option>
     </select>
     <br>
     <p>Primary settings:</p>
@@ -74,7 +81,7 @@
     <input id="setting-minimum-cliff-length"><label>Minimum cliff length</label><br>
     <input id="setting-forest-clumpiness"><label>Forest clumpiness</label><br>
     <input id="setting-deny-walled-areas" type="checkbox"><label>Deny access to regions which might not be accessible to all players </label><br>
-    <input id="setting-enforce-symmetry" type="checkbox"><label>Enforce symmetry of terrain availability with entities</label><br>
+    <input id="setting-enforce-symmetry" type="checkbox"><label>Improve symmetry of terrain passability with forest</label><br>
     <p>Entity settings:</p>
     <input id="setting-create-entities" type="checkbox"><label>Create entities</label><br>
     <input id="setting-starting-mines"><label>Starting mines</label><br>
