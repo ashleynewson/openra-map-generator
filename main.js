@@ -1793,7 +1793,7 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
     }
 }
 
-function findPlayableRegions(tiles, size) {
+function findPlayableRegions(tiles, entities, size) {
     const regions = [];
     const regionMask = new Uint32Array(size * size);
     const playable = new Uint8Array(size * size);
@@ -1812,6 +1812,17 @@ function findPlayableRegions(tiles, size) {
         default:
             playable[n] = 0;
             break;
+        }
+    }
+    for (const entity of entities) {
+        const def = info.EntityInfo[entity.type];
+        for (const [ox, oy] of def.Shape) {
+            const x = entity.x + ox;
+            const y = entity.y + oy;
+            if (x < 0 || x >= size || y < 0 || y >= size) {
+                continue;
+            }
+            playable[y * size + x] = 0;
         }
     }
     const fill = function(region, startX, startY) {
@@ -1869,6 +1880,7 @@ function generateMap(params) {
         die("water and mountain fractions combined must not exceed 1");
     }
     const random = new Random(params.seed);
+
     let elevation = fractalNoise2dWithSymetry({
         random,
         size,
@@ -1876,6 +1888,19 @@ function generateMap(params) {
         mirror: params.mirror,
         wavelengthScale: (params.wavelengthScale ?? 1.0),
     });
+    let forests = null;
+    if (params.forests > 0) {
+        // Generate this now so that the noise isn't effected by random settings.
+        forests = fractalNoise2dWithSymetry({
+            random,
+            size,
+            rotations: params.rotations,
+            mirror: params.mirror,
+            wavelengthScale: params.wavelengthScale,
+            amp_func: (wavelength => (wavelength**params.forestClumpiness)),
+        });
+    }
+
     {
         const min = Math.min(...elevation);
         dump2d("uncalibrated terrain (zero-rebased)", elevation.map(v => v-min), size, size);
@@ -1978,9 +2003,33 @@ function generateMap(params) {
     const entities = [];
     const players = [];
 
+    if (forests !== null) {
+        {
+            const min = Math.min(...forests);
+            dump2d("uncalibrated forests (zero-rebased)", forests.map(v => v-min), size, size);
+        }
+        calibrateHeightInPlace(
+            forests,
+            0.0,
+            1.0 - params.forests,
+        );
+        for (let n = 0; n < size * size; n++) {
+            switch (codeMap[tiles[n]].Type) {
+            case "Clear":
+                // Preserve forest
+                break;
+            default:
+                forests[n] = -1;
+                break;
+            }
+        }
+        dump2d("calibrated forests", forests, size, size);
+        obstructArea(tiles, entities, size, forests, info.ObstacleInfo.Forest, random);
+    }
+
     const playableArea = new Uint8Array(size * size);
     {
-        const [regionMask, regions] = findPlayableRegions(tiles, size);
+        const [regionMask, regions] = findPlayableRegions(tiles, entities, size);
         if (regions.length === 0) {
             die("No regions");
         }
@@ -2305,13 +2354,15 @@ function generateMap(params) {
         }
     }
 
+    const mapName = params.customName !== "" ? params.customName : `Random Map @${Date.now()}`;
+
     // OpenRA's yaml isn't proper YAML - it's something weird and
     // specific to OpenRA called MiniYAML. So, I can't do something
     // normal and have to dump it out myself...
     map.yaml =
 `MapFormat: 12
 RequiresMod: ra
-Title: Random Map ${params.seed} @${Date.now()}
+Title: ${mapName}
 Author: OpenRA Random Map Generator Prototype
 Tileset: TEMPERAT
 MapSize: ${size+2},${size+2}
@@ -2475,10 +2526,12 @@ const settingsMetadata = {
     rotations: {init: 2, type: "int"},
     mirror: {init: 0, type: "int"},
     players: {init: 1, type: "int"},
+    customName: {init: "", type: "string"},
 
     wavelengthScale: {init: 1.0, type: "float"},
     water: {init: 0.5, type: "float"},
     mountains: {init: 0.1, type: "float"},
+    forests: {init: 0.1, type: "float"},
     terrainSmoothing: {init: 4, type: "int"},
     smoothingThreshold: {init: 0.33, type: "float"},
     minimumLandSeaThickness: {init: 5, type: "int"},
@@ -2488,6 +2541,7 @@ const settingsMetadata = {
     roughness: {init: 0.5, type: "float"},
     minimumTerrainContourSpacing: {init: 6, type: "int"},
     minimumCliffLength: {init: 10, type: "int"},
+    forestClumpiness: {init: 0.5, type: "float"},
     denyWalledAreas: {init: true, type: "bool"},
     enforceSymmetry: {init: false, type: "bool"},
 
@@ -2533,6 +2587,9 @@ export function readSettings() {
         case "float":
             value = Number(el.value);
             break;
+        case "string":
+            value = el.value;
+            break;
         case "bool":
             value = el.checked;
             break;
@@ -2554,6 +2611,7 @@ export function writeSettings(settings) {
         switch (type) {
         case "int":
         case "float":
+        case "string":
             el.value = value;
             break;
         case "bool":
