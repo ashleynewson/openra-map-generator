@@ -2013,6 +2013,7 @@ function generateMap(params) {
             0.0,
             1.0 - params.forests,
         );
+        dump2d("calibrated forests", forests, size, size);
         for (let n = 0; n < size * size; n++) {
             switch (codeMap[tiles[n]].Type) {
             case "Clear":
@@ -2023,7 +2024,6 @@ function generateMap(params) {
                 break;
             }
         }
-        dump2d("calibrated forests", forests, size, size);
         obstructArea(tiles, entities, size, forests, info.ObstacleInfo.Forest, random);
     }
 
