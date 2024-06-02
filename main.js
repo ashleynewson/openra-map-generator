@@ -75,6 +75,27 @@ function dump2d(label, data, w, h, points) {
 
 const EXTERNAL_BIAS = 1000000;
 
+// Replaceability like this isn't a perfect system. It can produce
+// tiling errors if a template is only partially targeted for
+// replacement. However, this is fairly rare and not a huge concern.
+
+// Area cannot be replaced by a tile or obstructing entity.
+const REPLACEABILITY_NONE = 0;
+// Area must be replaced by a different tile, and may optionally be given an entity.
+const REPLACEABILITY_TILE = 1;
+// Area must be given an entity, but the underlying tile must not change.
+const REPLACEABILITY_ENTITY = 2;
+// Area can be replaced by a tile and/or entity.
+const REPLACEABILITY_ANY = 3;
+
+// Area is unplayable by land/naval units.
+const PLAYABILITY_UNPLAYABLE = 0;
+// Area is unplayable by land/naval units, but should count as being "within" a playable region.
+// This usually applies to random rock or river tiles in largely passable templates.
+const PLAYABILITY_PARTIAL = 1;
+// Area is playable by either land or naval units.
+const PLAYABILITY_PLAYABLE = 2;
+
 const DEGREES_0   = 0;
 const DEGREES_90  = Math.PI * 0.5;
 const DEGREES_180 = Math.PI * 1;
@@ -1717,16 +1738,29 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
     }
 }
 
+function identifyReplaceableTiles(tiles, size) {
+    const sizeSize = size * size;
+    const output = new Uint8Array(sizeSize);
+    for (let n = 0; n < sizeSize; n++) {
+        output[n] = info.replaceabilityMap[tiles[n]] ?? REPLACEABILITY_ANY;
+    }
+    return output;
+}
+
 // If there's a template which doesn't have a tile in its top-left
 // corner, this method has biases against it.
-function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
+function obstructArea(tiles, entities, size, mask, permittedObstacles, random, replaceability) {
+    replaceability ??= identifyReplaceableTiles(tiles, size);
     const obstaclesByArea = [];
     for (const obstacle of permittedObstacles) {
         obstaclesByArea[obstacle.Area] ??= [];
         obstaclesByArea[obstacle.Area].push(obstacle);
     }
+    obstaclesByArea.reverse();
     const obstacleTotalArea = permittedObstacles.map(t => t.Area).reduce((a, b) => a + b);
     const obstacleTotalWeight = permittedObstacles.map(t => t.Weight).reduce((a, b) => a + b);
+    // Give 1-by-1 entities the final pass, as they are most flexible.
+    obstaclesByArea.push(permittedObstacles.filter(o => {o.Entity && o.Area === 1}));
     const sizeSize = size * size;
     const maskIndices = new Uint32Array(sizeSize);
     const remaining = new Uint8Array(sizeSize);
@@ -1753,7 +1787,7 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
         }
         random.shuffleInPlace(indices, indexCount);
     };
-    const reserveObstacle = function(px, py, shape) {
+    const reserveObstacle = function(px, py, shape, contract) {
         for (const [ox, oy] of shape) {
             const x = px + ox;
             const y = py + oy;
@@ -1762,11 +1796,17 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
             }
             const i = y * size + x;
             if (!remaining[i]) {
-                // Can't reserve
-                return false;
+                // Can't reserve - not the right shape
+                return REPLACEABILITY_NONE;
+            }
+            contract &= replaceability[i];
+            if (contract === REPLACEABILITY_NONE) {
+                // Can't reserve - obstruction choice doesn't comply
+                // with replaceability of original tiles.
+                return REPLACEABILITY_NONE;
             }
         }
-        // Can reserve
+        // Can reserve. Commit.
         for (const [ox, oy] of shape) {
             const x = px + ox;
             const y = py + oy;
@@ -1776,11 +1816,11 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
             const i = y * size + x;
             remaining[i] = 0;
         }
-        return true;
+        return contract;
     };
 
-    for (const obstacles of obstaclesByArea.reverse()) {
-        if (typeof(obstacles) === "undefined") {
+    for (const obstacles of obstaclesByArea) {
+        if (typeof(obstacles) === "undefined" || obstacles.length === 0) {
             continue;
         }
         const obstacleArea = obstacles[0].Area;
@@ -1795,7 +1835,15 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
             const obstacle = random.pickWeighted(obstacles, obstacleWeights);
             const py = (n / size) | 0;
             const px = (n % size) | 0;
-            if (reserveObstacle(px, py, obstacle.Shape)) {
+            if (px === 80 && py === 97) {
+                breakpoint();
+            }
+            const inContract =
+                obstacle.Template ? REPLACEABILITY_TILE
+                                  : obstacle.Tile ? REPLACEABILITY_ANY
+                                                  : REPLACEABILITY_ENTITY;
+            const contract = reserveObstacle(px, py, obstacle.Shape, inContract);
+            if (contract !== REPLACEABILITY_NONE) {
                 if (obstacle.Template) {
                     paintTemplate(tiles, size, px, py, obstacle.Template);
                 } else if (obstacle.Entity) {
@@ -1805,7 +1853,9 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
                         x: px,
                         y: py,
                     });
-                    if (typeof(obstacle.Tile) !== "undefined") {
+                    if (contract === REPLACEABILITY_TILE) {
+                        obstacle.Tile ?? die("assertion failure");
+                        // Contract requires us to replace the tile as well.
                         for (const [ox, oy] of obstacle.Entity.Shape) {
                             const x = px + ox;
                             const y = py + oy;
@@ -1829,21 +1879,7 @@ function findPlayableRegions(tiles, entities, size) {
     const regionMask = new Uint32Array(size * size);
     const playable = new Uint8Array(size * size);
     for (let n = 0; n < size * size; n++) {
-        const type = codeMap[tiles[n]].Type;
-        switch (type) {
-        case "Beach":
-        case "Clear":
-        case "Gems":
-        case "Ore":
-        case "Road":
-        case "Rough":
-        case "Water":
-            playable[n] = 1;
-            break;
-        default:
-            playable[n] = 0;
-            break;
-        }
+        playable[n] = info.playabilityMap[tiles[n]] ?? die("missing tile playability info");
     }
     const externalCircle = new Uint8Array(size * size);
     const externalCircleCenter = ((size - 1) / 2);
@@ -1993,9 +2029,6 @@ function generateMap(params) {
         } else {
             tiles[n] = 't1i0';
         }
-        if (tiles[n] === null) {
-            tiles[n] = 't51i8';
-        }
     }
 
     let coastlines = zeroLinesToPaths(landPlan, size);
@@ -2137,7 +2170,7 @@ function generateMap(params) {
         }
         largest || die("could not find a playable region");
         if (params.denyWalledAreas) {
-            const obstructionMask = regionMask.map(v => (v !== 0 && v !== largest.id));
+            const obstructionMask = regionMask.map(v => (v !== largest.id));
             obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.Land, random);
         }
         for (let n = 0; n < size * size; n++) {
@@ -2363,7 +2396,6 @@ function generateMap(params) {
             case "River":
             case "Rock":
             case "Water":
-            case "Water":
                 return true;
             case "Beach":
             case "Clear":
@@ -2371,7 +2403,6 @@ function generateMap(params) {
                 switch (codeMap[tiles[i]].Type) {
                 case "River":
                 case "Rock":
-                case "Water":
                 case "Water":
                     return false;
                 case "Beach":
@@ -3051,6 +3082,52 @@ Promise.all([
                 dm: 1 << p.d, // direction mask
                 dmr: 1 << reverseDirection(p.d), // direction mask reverse
             }));
+        }
+
+        info.replaceabilityMap = {};
+        info.playabilityMap = {};
+        for (const tileName of Object.keys(info.TileInfo)) {
+            const tile = info.TileInfo[tileName];
+            switch (tile.Type) {
+            case "Beach":
+            case "Clear":
+            case "Gems":
+            case "Ore":
+            case "Road":
+            case "Rough":
+            case "Water":
+                info.playabilityMap[tileName] = PLAYABILITY_PLAYABLE;
+                break;
+            default:
+                info.playabilityMap[tileName] = PLAYABILITY_UNPLAYABLE;
+                break;
+            }
+        }
+
+        // Category-based behavior overrides
+        info.replaceabilityMap["t1i0"] = REPLACEABILITY_TILE;
+        for (const templateName of Object.keys(info.Tileset.Templates)) {
+            const template = info.Tileset.Templates[templateName];
+            for (const ti of Object.keys(template.Tiles)) {
+                const tile = `t${template.Id}i${ti}`;
+                switch (template.Categories) {
+                case "Cliffs":
+                    if (template.Tiles[ti] === "Rock") {
+                        info.replaceabilityMap[tile] = REPLACEABILITY_NONE;
+                    } else {
+                        info.replaceabilityMap[tile] = REPLACEABILITY_ENTITY;
+                    }
+                    break;
+                case "Beach":
+                    info.replaceabilityMap[tile] = REPLACEABILITY_TILE;
+                    if (info.playabilityMap[tile] === PLAYABILITY_UNPLAYABLE) {
+                        info.playabilityMap[tile] = PLAYABILITY_PARTIAL;
+                    }
+                default:
+                    // Do nothing
+                    break;
+                }
+            }
         }
 
         ready = true;

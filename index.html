@@ -11,17 +11,20 @@
   <body>
     <h1>OpenRA Random Map Generator Prototype</h2>
     <p>Copyright Ashley Newson 2024.</p>
-    <input id="preview-size" type="range" min="0" value="512" max="1024" step="64" onchange="resizePreview()"><label>Preview size</label><br>
-    <span id="status-line"></span>
+    <hr>
+    <span id="status-line"></span><br>
     <span style="visibility:hidden;" id="save-links">
-      <a id="saveBin" download="map.bin" href='#'>Save map.bin</a>
-      <a id="saveYaml" download="map.yaml" href='#'>Save map.yaml</a>
+      <a id="saveBin" download="map.bin" href='#'>Save map.bin</a> |
+      <a id="saveYaml" download="map.yaml" href='#'>Save map.yaml</a> |
       <a id="savePng" download="map.png" href='#'>Save map.png</a>
+    </span>
+    <br>
+    <span>
+      <a id="linkToMap" href='#'>Link to this map</a> |
       <a id="saveSettings" download="map-settings.txt" href='#'>Save settings</a>
     </span>
     <br>
-    <a id="linkToMap" href='#'>Link to this map</a>
-    <br>
+    <input id="preview-size" type="range" min="0" value="512" max="1024" step="64" onchange="resizePreview()"><label>Preview size</label><br>
     <div>
       <canvas style="border: 8px solid;" id="canvas" width="64" height="64"></canvas>
     </div>
