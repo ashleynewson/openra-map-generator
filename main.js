@@ -3210,4 +3210,8 @@ Promise.all([
         }
         // Hack: requestAnimationFrame so that the generation status shows up.
         beginGenerate();
+    })
+    .catch((err) => {
+        alert("Failure in early startup. Check console.");
+        console.error(err);
     });

@@ -118,32 +118,14 @@
     <textarea id="settings-json"></textarea>
     <hr>
     <h3>Debugging information</h3>
-    <div id="debug"></div>
-    <pre>
-Seed list:
--2024525772
-127531097
-1574961058
-1936200760
-639876195
-594113115
-1031828710
-1540134231
-1865077859
-221031888
-995298775
-56044641 (thin masses)
--877769920 @ wavelength 0.2
--506412402 @ wavelength 0.25 (bi-stable thin masses)
-810287738 (I just like the look of it)
-679141286 (couple of ponds)
-2127732142 (tiling fails)
-270145234 (lake @ water 0.25)
--1936116975 (size 128, 0.35 water, 0.3 wavelength)
--88112732 (shortcircuit. size 128, 0.35 water, 0.1 wavelength)
-813543009 (random crash?)
-1809431707 (broken coastline. wavelength 0.2)
-182620986 (puddles)
-    </pre>
+    <input type="checkbox" id="debug-expander" onchange="showHideDebug()"><label>Show</label>
+    <div id="debug" style="display:none"></div>
+    <script>
+      function showHideDebug() {
+          const debug = document.getElementById("debug");
+          const debugExpander = document.getElementById("debug-expander");
+          debug.style.display = debugExpander.checked ? "block" : "none";
+      }
+    </script>
   </body>
 </html>
