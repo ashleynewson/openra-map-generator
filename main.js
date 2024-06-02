@@ -8,6 +8,8 @@ window.debugUtils = {
 };
 
 let ready = false;
+let running = false;
+let dirty = true;
 let info;
 let entityInfo;
 const codeMap = {};
@@ -31,6 +33,15 @@ function blankPreview(color) {
 }
 
 function breakpoint() {}
+
+async function progress(status) {
+    const statusLine = document.getElementById("status-line");
+    statusLine.textContent = status;
+    console.log(status);
+    await new Promise((resolve, reject) => {
+        requestAnimationFrame(resolve);
+    });
+}
 
 function dump2d(label, data, w, h, points) {
     const canvas = document.createElement("canvas");
@@ -1950,7 +1961,7 @@ function findPlayableRegions(tiles, entities, size) {
     return [regionMask, regions];
 }
 
-function generateMap(params) {
+async function generateMap(params) {
     const size = params.size ?? die("need size");
 
     // Terrain generation
@@ -1965,6 +1976,7 @@ function generateMap(params) {
     }
     const random = new Random(params.seed);
 
+    await progress("elevation: generating noise");
     let elevation = fractalNoise2dWithSymetry({
         random,
         size,
@@ -1972,24 +1984,13 @@ function generateMap(params) {
         mirror: params.mirror,
         wavelengthScale: (params.wavelengthScale ?? 1.0),
     });
-    let forests = null;
-    if (params.forests > 0) {
-        // Generate this now so that the noise isn't effected by random settings.
-        forests = fractalNoise2dWithSymetry({
-            random,
-            size,
-            rotations: params.rotations,
-            mirror: params.mirror,
-            wavelengthScale: params.wavelengthScale,
-            amp_func: (wavelength => (wavelength**params.forestClumpiness)),
-        });
-    }
 
     {
         const min = Math.min(...elevation);
         dump2d("uncalibrated terrain (zero-rebased)", elevation.map(v => v-min), size, size);
     }
     if (params.terrainSmoothing) {
+        await progress("elevation: applying gaussian blur");
         const radius = params.terrainSmoothing;
         const kernel = gaussianKernel1D(radius, radius);
         elevation = kernelBlur(elevation, size, kernel, radius * 2 + 1, 1, radius, 0);
@@ -2004,6 +2005,7 @@ function generateMap(params) {
     );
     const externalCircleCenter = ((size - 1) / 2);
     if (params.externalCircularBias !== 0) {
+        await progress("elevation: reserving external circle");
         reserveCircleInPlace(
             elevation,
             size,
@@ -2017,7 +2019,23 @@ function generateMap(params) {
     {
         dump2d("calibrated terrain", elevation, size, size);
     }
+    await progress("land planning: fixing terrain anomalies");
     let landPlan = fixTerrain(elevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumLandSeaThickness, /*bias=*/(params.water < 0.5 ? 1 : -1), "landPlan");
+
+    let forests = null;
+    if (params.forests > 0) {
+        await progress("forests: generating noise");
+        // Generate this now so that the noise isn't effected by random settings.
+        await progress("generating forest map");
+        forests = fractalNoise2dWithSymetry({
+            random,
+            size,
+            rotations: params.rotations,
+            mirror: params.mirror,
+            wavelengthScale: params.wavelengthScale,
+            amp_func: (wavelength => (wavelength**params.forestClumpiness)),
+        });
+    }
 
     const tiles = new Array(size * size);
     const resources = new Uint8Array(size * size);
@@ -2031,14 +2049,17 @@ function generateMap(params) {
         }
     }
 
+    await progress("coastlines: tracing coastlines");
     let coastlines = zeroLinesToPaths(landPlan, size);
     coastlines = coastlines.map(coastline => tweakPath(coastline, size));
+    await progress("coastlines: fitting and laying tiles");
     for (const coastline of coastlines) {
         coastline.type = "Coastline";
         tilePath(tiles, size, coastline, random, params.minimumLandSeaThickness);
     }
 
     if (params.externalCircularBias > 0) {
+        await progress("creating circular cliff map border");
         const cliffRing = new Int8Array(size * size).fill(-1);
         reserveCircleInPlace(
             cliffRing,
@@ -2063,6 +2084,7 @@ function generateMap(params) {
         }
     }
     if (params.mountains > 0.0 || params.externalCircularBias > 0) {
+        await progress("mountains: calculating elevation roughness");
         const roughness = gridVariance2d(elevation, size, params.roughnessRadius).map(v => Math.sqrt(v));
         dump2d("roughness (as standard deviation)", roughness, size + 1, size + 1);
         calibrateHeightInPlace(
@@ -2087,6 +2109,7 @@ function generateMap(params) {
             );
         }
         for (let altitude = 1; altitude <= params.maximumAltitude; altitude++) {
+            await progress(`mountains: altitude ${altitude}: determining eligible area for cliffs`);
             // Limit mountain area to the existing mountain space (starting with all available land)
             const roominess = calculateRoominess(cliffPlan, size, true);
             let available = 0;
@@ -2107,13 +2130,17 @@ function generateMap(params) {
                 1.0 - availableFraction * params.mountains,
             );
             dump2d(`mountains at altitude ${altitude}`, mountainElevation, size, size);
+            await progress(`mountains: altitude ${altitude}: fixing terrain anomalies`);
             cliffPlan = fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumMountainThickness, /*bias=*/-1, "cliffPlan");
+            await progress(`mountains: altitude ${altitude}: tracing cliffs`);
             let cliffs = zeroLinesToPaths(cliffPlan, size);
+            await progress(`mountains: altitude ${altitude}: appling roughness mask to cliffs`);
             cliffs = maskPaths(cliffs, cliffMask, size + 1);
             cliffs = cliffs.filter(cliff => cliff.points.length >= params.minimumCliffLength);
             if (cliffs.length === 0) {
                 break;
             }
+            await progress(`mountains: altitude ${altitude}: fitting and laying tiles`);
             cliffs = cliffs.map(cliff => tweakPath(cliff, size));
             cliffs.forEach(cliff => {
                 cliff.type = "Cliff";
@@ -2132,6 +2159,7 @@ function generateMap(params) {
     const players = [];
 
     if (forests !== null) {
+        await progress(`forests: planting trees`);
         {
             const min = Math.min(...forests);
             dump2d("uncalibrated forests (zero-rebased)", forests.map(v => v-min), size, size);
@@ -2157,6 +2185,7 @@ function generateMap(params) {
 
     const playableArea = new Uint8Array(size * size);
     {
+        await progress(`determining playable regions`);
         const [regionMask, regions] = findPlayableRegions(tiles, entities, size);
         dump2d("playable regions", regionMask, size, size);
         let largest = null;
@@ -2170,6 +2199,7 @@ function generateMap(params) {
         }
         largest || die("could not find a playable region");
         if (params.denyWalledAreas) {
+            await progress(`obstructing semi-unreachable areas`);
             const obstructionMask = regionMask.map(v => (v !== largest.id));
             obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.Land, random);
         }
@@ -2180,6 +2210,7 @@ function generateMap(params) {
     }
 
     if (params.createEntities) {
+        await progress(`entities: determining eligible space`);
         const zones = [];
         const zoneable = new Int8Array(size * size);
         for (let n = 0; n < tiles.length; n++) {
@@ -2214,6 +2245,7 @@ function generateMap(params) {
         let roominess = calculateRoominess(zoneable, size);
 
         // Spawn generation
+        await progress(`entities: zoning for spawns`);
         for (let iteration = 0; iteration < params.players; iteration++) {
             roominess = calculateRoominess(roominess, size);
             const spawnPreference = calculateSpawnPreferences(roominess, size, params.centralReservation, params.spawnRegionSize, params.mirror);
@@ -2257,6 +2289,7 @@ function generateMap(params) {
         entities.push(...players);
 
         // Expansions
+        await progress(`entities: zoning for expansions`);
         for (let i = 0; i < (params.maximumExpansions ?? 0); i++) {
             roominess = calculateRoominess(roominess, size);
             dump2d(`expansion roominess ${i}`, roominess, size, size);
@@ -2286,6 +2319,7 @@ function generateMap(params) {
         }
 
         // Neutral buildings
+        await progress(`entities: zoning for tech structures`);
         {
             params.maximumBuildings >= params.minimumBuildings || die("maximumBuildings must be at least minimumBuildings");
             const targetBuildingCount =
@@ -2329,6 +2363,7 @@ function generateMap(params) {
             }
         }
 
+        await progress(`entities: converting zones to entities`);
         for (const zone of zones) {
             switch (zone.type) {
             case "mine":
@@ -2381,6 +2416,7 @@ function generateMap(params) {
 
     // Remove any ore that goes outside of the bounds of clear tiles.
     // (This may introduce some significant bias to certain players!)
+    await progress(`clearing unreachable resources`);
     for (let n = 0; n < resources.length; n++) {
         if (codeMap[tiles[n]].Type !== "Clear") {
             resources[n] = 0;
@@ -2389,6 +2425,7 @@ function generateMap(params) {
     }
 
     if (params.enforceSymmetry) {
+        await progress(`symmetry enforcement: analysing`);
         // const equitability = new Uint8Array(size * size).fill(1);
         const checkPoint = function(x, y, base) {
             const i = y * size + x;
@@ -2448,10 +2485,12 @@ function generateMap(params) {
                 obstructionMask[i] = equitable ? 0 : 1;
             }
         }
+        await progress(`symmetry enforcement: obstructing`);
         obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.FillSymmetry, random);
     }
 
     // Assign missing indexes
+    await progress(`assigning indexes to pick-any templates`);
     for (let n = 0; n < tiles.length; n++) {
         if (codeMap[tiles[n]].Codes.length > 1) {
             tiles[n] = random.pick(codeMap[tiles[n]].Codes);
@@ -2472,6 +2511,7 @@ function generateMap(params) {
         entities,
     };
 
+    await progress(`compiling: map.bin`);
     map.bin.u8format = 2;
     map.bin.u16width = size + 2;
     map.bin.u16height = size + 2;
@@ -2523,6 +2563,7 @@ function generateMap(params) {
     // OpenRA's yaml isn't proper YAML - it's something weird and
     // specific to OpenRA called MiniYAML. So, I can't do something
     // normal and have to dump it out myself...
+    await progress(`compiling: map.yaml`);
     map.yaml =
 `MapFormat: 12
 RequiresMod: ra
@@ -2633,8 +2674,10 @@ function createPreview(map, ctx) {
     }
 }
 
-export function generate() {
-    if (!ready) return;
+export async function generate() {
+    if (!ready) die("not ready");
+
+    await progress("setting up");
 
     debugDiv.replaceChildren();
 
@@ -2651,7 +2694,7 @@ export function generate() {
     history.replaceState({}, "", location.origin + location.pathname + "?settings=" + btoa(JSON.stringify(settings)));
     linkToMap.href = location.href;
 
-    const map = generateMap(settings);
+    const map = await generateMap(settings);
     window.map = map;
 
     const size = settings.size;
@@ -2659,11 +2702,13 @@ export function generate() {
     canvas.width = size;
     canvas.height = size;
 
+    await progress("rendering preview");
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, size, size);
     createPreview(map, ctx);
 
+    await progress("generating file links");
     {
         const blob = new Blob([map.bin.data], {type: 'application/octet-stream'});
         saveBin.href = URL.createObjectURL(blob);
@@ -2681,7 +2726,11 @@ export function generate() {
         savePng.href = canvas.toDataURL();
     }
 
-    framePreview("green");
+    if (dirty) {
+        framePreview("yellow");
+    } else {
+        framePreview("green");
+    }
 }
 
 const settingsMetadata = {
@@ -2739,6 +2788,11 @@ function camelToKebab(str) {
     return str.replaceAll(/(?=[A-Z])/g, '-').toLowerCase();
 }
 
+function markDirty() {
+    dirty = true;
+    framePreview("yellow");
+}
+
 export function readSettings() {
     const settings = {};
     for (const settingName of Object.keys(settingsMetadata)) {
@@ -2776,16 +2830,26 @@ export function writeSettings(settings) {
         const value = settings[settingName] ?? settingsMetadata[settingName].init;
         switch (type) {
         case "int":
+            el.value = value;
+            el.type = "text";
+            break;
         case "float":
+            el.value = value;
+            el.type = "text";
+            break;
         case "string":
             el.value = value;
+            el.type = "text";
             break;
         case "bool":
             el.checked = value;
+            el.type = "checkbox";
             break;
         default:
             die(`Unknown type ${type}`);
         }
+        el.onchange = markDirty;
+        el.oninput = markDirty;
     }
 }
 
@@ -2902,17 +2966,23 @@ export function configurePreset(generateRandom) {
 }
 
 export function beginGenerate() {
+    if (running) {
+        return;
+    }
     const statusLine = document.getElementById("status-line");
     const saveLinks = document.getElementById("save-links");
     requestAnimationFrame(function() {
-        statusLine.textContent = "Generating...";
+        running = true;
+        dirty = false;
+        statusLine.textContent = "starting";
         saveLinks.style.visibility = "hidden";
         framePreview("grey");
         blankPreview("black");
-        setTimeout(function () {
+        (async function () {
             try {
-                generate();
-                statusLine.textContent = "Done";
+                progress("Beginning...");
+                await generate();
+                await progress(`Done!`);
                 saveLinks.style.visibility = "visible";
             } catch (err) {
                 const log = document.createElement("pre");
@@ -2922,9 +2992,10 @@ export function beginGenerate() {
                 framePreview("red");
                 blankPreview("grey");
                 statusLine.textContent = "Error. Check debugging information below.";
-                throw err;
+                console.error(err);
             }
-        }, 0);
+            running = false;
+        })();
     });
 };
 
