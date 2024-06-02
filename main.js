@@ -2247,7 +2247,7 @@ async function generateMap(params) {
             );
             dump2d(`mountains at altitude ${altitude}`, mountainElevation, size, size);
             await progress(`mountains: altitude ${altitude}: fixing terrain anomalies`);
-            cliffPlan = await fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumMountainThickness, /*bias=*/-1, "mountains");
+            cliffPlan = await fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumMountainThickness, /*bias=*/-1, `mountains: altitude ${altitude}`);
             await progress(`mountains: altitude ${altitude}: tracing cliffs`);
             let cliffs = zeroLinesToPaths(cliffPlan, size);
             await progress(`mountains: altitude ${altitude}: appling roughness mask to cliffs`);
