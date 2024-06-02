@@ -577,7 +577,9 @@ function reserveCircleInPlace(grid, size, cx, cy, r, setTo, invert) {
 function zoneColor(type) {
     switch(type) {
     case "mine":
-        return "orange";
+        return "#ff8000";
+    case "gmine":
+        return "#8040ff";
     default:
         die(`unknown zone type "${type}"`);
     }
@@ -594,11 +596,18 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
     const radius = (radius1 + radius2) / 2;
     const circumference = (radius * Math.PI * 2);
     let ringBudget = circumference | 0;
+    const randomMineType = function() {
+        if (random.f32x() < params.gemUpgrade) {
+            return "gmine";
+        } else {
+            return "mine";
+        }
+    }
     switch (type) {
     case "spawn":
         for (let i = 0; i < params.spawnMines; i++) {
             const feature = {
-                type: "mine",
+                type: randomMineType(),
                 radius: params.spawnOre,
                 size: params.spawnOre * 2 - 1,
             };
@@ -611,7 +620,7 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
         for (let i = 0; i < mines && ringBudget > 0; i++) {
             const radius = (random.f32x() * params.expansionOre) | 0;
             const feature = {
-                type: "mine",
+                type: randomMineType(),
                 radius,
                 size: radius * 2 - 1,
             };
@@ -645,6 +654,7 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
             angle += feature.radius * anglePerUnit;
             break;
         case "mine":
+        case "gmine":
             {
                 angle += feature.radius * anglePerUnit;
                 // This may create an inward density bias.
@@ -1795,6 +1805,13 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random) {
                         x: px,
                         y: py,
                     });
+                    if (typeof(obstacle.Tile) !== "undefined") {
+                        for (const [ox, oy] of obstacle.Entity.Shape) {
+                            const x = px + ox;
+                            const y = py + oy;
+                            tiles[y * size + x] = obstacle.Tile;
+                        }
+                    }
                 } else {
                     die("assertion failure");
                 }
@@ -2677,6 +2694,7 @@ const settingsMetadata = {
     expansionBorder: {init: 4, type: "int"},
     expansionMines: {init: 0.02, type: "float"},
     expansionOre: {init: 5, type: "int"},
+    gemUpgrade: {init: 0.1, type: "float"},
     minimumBuildings: {init: 0, type: "int"},
     maximumBuildings: {init: 3, type: "int"},
     weightFcom: {init: 1, type: "float"},

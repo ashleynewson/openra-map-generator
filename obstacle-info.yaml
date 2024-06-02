@@ -63,34 +63,49 @@ Land:
   - TemplateName: "Template@400"
     Weight: 10
   - EntityName: "t01"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t02"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t03"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t05"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t06"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t07"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t08"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t10"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t11"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t12"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t13"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t14"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t15"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t16"
+    Tile: "t255"
     Weight: 10
   - EntityName: "t17"
+    Tile: "t255"
     Weight: 10
 
 Forest:
