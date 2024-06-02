@@ -73,6 +73,8 @@ function dump2d(label, data, w, h, points) {
     debugDiv.append(canvas);
 }
 
+const EXTERNAL_BIAS = 1000000;
+
 const DEGREES_0   = 0;
 const DEGREES_90  = Math.PI * 0.5;
 const DEGREES_180 = Math.PI * 1;
@@ -534,22 +536,34 @@ function calculateSpawnPreferences(roominess, size, centralReservation, spawnReg
     return preferences;
 }
 
-function reserveCircleInPlace(grid, size, cx, cy, r, setTo) {
-    let minX = cx - r;
-    let minY = cy - r;
-    let maxX = cx + r;
-    let maxY = cy + r;
-    if (minX < 0) { minX = 0; }
-    if (minY < 0) { minX = 0; }
-    if (maxX >= size) { maxX = size - 1; }
-    if (maxY >= size) { maxY = size - 1; }
+function reserveCircleInPlace(grid, size, cx, cy, r, setTo, invert) {
+    invert ??= false;
+    let minX;
+    let minY;
+    let maxX;
+    let maxY;
+    if (invert) {
+        minX = 0;
+        minY = 0;
+        maxX = size - 1;
+        maxY = size - 1;
+    } else {
+        minX = cx - r;
+        minY = cy - r;
+        maxX = cx + r;
+        maxY = cy + r;
+        if (minX < 0) { minX = 0; }
+        if (minY < 0) { minX = 0; }
+        if (maxX >= size) { maxX = size - 1; }
+        if (maxY >= size) { maxY = size - 1; }
+    }
     const rSq = r * r;
     for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
             const rx = x - cx;
             const ry = y - cy;
             const thisRSq = rx*rx + ry*ry;
-            if (rx*rx + ry*ry <= rSq) {
+            if (rx*rx + ry*ry <= rSq !== invert) {
                 if (typeof(setTo) === "function") {
                     grid[y * size + x] = setTo(thisRSq, grid[y * size + x]);
                 } else {
@@ -1814,6 +1828,17 @@ function findPlayableRegions(tiles, entities, size) {
             break;
         }
     }
+    const externalCircle = new Uint8Array(size * size);
+    const externalCircleCenter = ((size - 1) / 2);
+    reserveCircleInPlace(
+        externalCircle,
+        size,
+        externalCircleCenter,
+        externalCircleCenter,
+        size / 2 - 1,
+        1,
+        /*invert=*/true
+    );
     for (const entity of entities) {
         const def = info.EntityInfo[entity.type];
         for (const [ox, oy] of def.Shape) {
@@ -1825,9 +1850,15 @@ function findPlayableRegions(tiles, entities, size) {
             playable[y * size + x] = 0;
         }
     }
-    const fill = function(region, startX, startY) {
-        regionMask[startY * size + startX] = region.id;
+    const addToRegion = function(region, i) {
+        regionMask[i] = region.id;
         region.area++;
+        if (externalCircle[i]) {
+            region.externalCircle = true;
+        }
+    };
+    const fill = function(region, startX, startY) {
+        addToRegion(region, startY * size + startX);
         let next = [[startX, startY]];
         const spread = [[1, 0], [-1, 0], [0, 1], [0, -1]];
         while (next.length !== 0) {
@@ -1842,8 +1873,7 @@ function findPlayableRegions(tiles, entities, size) {
                     }
                     const i = y * size + x;
                     if (regionMask[i] === 0 && playable[i]) {
-                        regionMask[i] = region.id;
-                        region.area++;
+                        addToRegion(region, i);
                         next.push([x, y]);
                     }
                 }
@@ -1857,6 +1887,7 @@ function findPlayableRegions(tiles, entities, size) {
                 const region = {
                     area: 0,
                     id: regions.length + 1,
+                    externalCircle: false,
                 };
                 regions.push(region);
                 fill(region, startX, startY);
@@ -1918,6 +1949,18 @@ function generateMap(params) {
         0.0,
         params.water,
     );
+    const externalCircleCenter = ((size - 1) / 2);
+    if (params.externalCircularBias !== 0) {
+        reserveCircleInPlace(
+            elevation,
+            size,
+            externalCircleCenter,
+            externalCircleCenter,
+            size / 2 - (params.minimumLandSeaThickness + params.minimumMountainThickness),
+            params.externalCircularBias > 0 ? EXTERNAL_BIAS : -EXTERNAL_BIAS,
+            /*invert=*/true
+        );
+    }
     {
         dump2d("calibrated terrain", elevation, size, size);
     }
@@ -1945,7 +1988,31 @@ function generateMap(params) {
         tilePath(tiles, size, coastline, random, params.minimumLandSeaThickness);
     }
 
-    if (params.mountains > 0.0) {
+    if (params.externalCircularBias > 0) {
+        const cliffRing = new Int8Array(size * size).fill(-1);
+        reserveCircleInPlace(
+            cliffRing,
+            size,
+            externalCircleCenter,
+            externalCircleCenter,
+            size / 2 - (params.minimumLandSeaThickness),
+            1,
+            /*invert=*/true
+        );
+        let cliffs = zeroLinesToPaths(cliffRing, size);
+        cliffs = cliffs.map(cliff => tweakPath(cliff, size));
+        cliffs.forEach(cliff => {
+            cliff.type = "Cliff";
+            if (!cliff.isLoop) {
+                cliff.startType = "Clear";
+                cliff.endType = "Clear";
+            }
+        });
+        for (const cliff of cliffs) {
+            tilePath(tiles, size, cliff, random, params.minimumMountainThickness);
+        }
+    }
+    if (params.mountains > 0.0 || params.externalCircularBias > 0) {
         const roughness = gridVariance2d(elevation, size, params.roughnessRadius).map(v => Math.sqrt(v));
         dump2d("roughness (as standard deviation)", roughness, size + 1, size + 1);
         calibrateHeightInPlace(
@@ -1956,8 +2023,19 @@ function generateMap(params) {
         dump2d("roughness calibrated", roughness, size + 1, size + 1);
         const cliffMask = roughness.map(v => (v >= 0 ? 1 : -1));
         dump2d("cliffMaskBin", cliffMask, size + 1, size + 1);
-        let cliffPlan = landPlan;
         const mountainElevation = elevation.slice();
+        let cliffPlan = landPlan;
+        if (params.externalCircularBias > 0) {
+            reserveCircleInPlace(
+                cliffPlan,
+                size,
+                externalCircleCenter,
+                externalCircleCenter,
+                size / 2 - (params.minimumLandSeaThickness + params.minimumMountainThickness),
+                -1,
+                /*invert=*/true
+            );
+        }
         for (let altitude = 1; altitude <= params.maximumAltitude; altitude++) {
             // Limit mountain area to the existing mountain space (starting with all available land)
             const roominess = calculateRoominess(cliffPlan, size, true);
@@ -2030,15 +2108,17 @@ function generateMap(params) {
     const playableArea = new Uint8Array(size * size);
     {
         const [regionMask, regions] = findPlayableRegions(tiles, entities, size);
-        if (regions.length === 0) {
-            die("No regions");
-        }
-        let largest = regions[0];
+        dump2d("playable regions", regionMask, size, size);
+        let largest = null;
         for (const region of regions) {
-            if (region.area > largest.area) {
+            if (params.externalCircularBias > 0 && region.externalCircle) {
+                continue;
+            }
+            if (largest === null || region.area > largest.area) {
                 largest = region;
             }
         }
+        largest || die("could not find a playable region");
         if (params.denyWalledAreas) {
             const obstructionMask = regionMask.map(v => (v !== 0 && v !== largest.id));
             obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.Land, random);
@@ -2046,7 +2126,6 @@ function generateMap(params) {
         for (let n = 0; n < size * size; n++) {
             playableArea[n] = (regionMask[n] === largest.id) ? 1 : 0;
         }
-        dump2d("playable regions", regionMask, size, size);
         dump2d("chosen playable area", playableArea, size, size);
     }
 
@@ -2055,6 +2134,24 @@ function generateMap(params) {
         const zoneable = new Int8Array(size * size);
         for (let n = 0; n < tiles.length; n++) {
             zoneable[n] = (playableArea[n] && codeMap[tiles[n]].Type === 'Clear') ? 1 : -1;
+        }
+        switch (params.rotations) {
+        case 1:
+        case 2:
+        case 4:
+            break;
+        default:
+            // Non 1, 2, 4 rotations need entity placement confined to a circle, regardless of externalCircularBias
+            reserveCircleInPlace(
+                zoneable,
+                size,
+                externalCircleCenter,
+                externalCircleCenter,
+                size / 2 - 1,
+                -1,
+                /*invert=*/true
+            );
+            break;
         }
         if (params.rotations > 1 || params.mirror !== 0) {
             // Reserve the center of the map - otherwise it will mess with rotations
@@ -2551,6 +2648,7 @@ const settingsMetadata = {
     water: {init: 0.5, type: "float"},
     mountains: {init: 0.1, type: "float"},
     forests: {init: 0.025, type: "float"},
+    externalCircularBias: {init: 0, type: "int"},
     terrainSmoothing: {init: 4, type: "int"},
     smoothingThreshold: {init: 0.33, type: "float"},
     minimumLandSeaThickness: {init: 5, type: "int"},

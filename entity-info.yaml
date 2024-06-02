@@ -2,7 +2,7 @@ fcom:
   w: 2
   h: 2
   debugRadius: 1.5
-  debugColor: "rgb(0, 0, 255)"
+  debugColor: "rgb(255, 0, 255)"
 hosp:
   w: 2
   h: 2
@@ -12,17 +12,17 @@ miss:
   w: 3
   h: 2
   debugRadius: 1.5
-  debugColor: "rgb(128, 64, 0)"
+  debugColor: "rgb(0, 0, 255)"
 bio:
   w: 2
   h: 2
   debugRadius: 1.5
-  debugColor: "rgb(128, 128, 128)"
+  debugColor: "rgb(255, 64, 0)"
 oilb:
   w: 2
   h: 2
   debugRadius: 1.5
-  debugColor: "rgb(255, 255, 0)"
+  debugColor: "rgb(128, 128, 128)"
 mine:
   w: 1
   h: 1
