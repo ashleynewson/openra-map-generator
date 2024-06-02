@@ -1025,10 +1025,11 @@ function zip2(a, b, f) {
     return c;
 }
 
-function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minimumThickness, bias, debugLabel) {
+async function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minimumThickness, bias, debugLabel) {
     if (typeof(debugLabel) === "undefined") {
         debugLabel = "(unlabelled)";
     }
+    await progress(`${debugLabel}: fixing terrain anomalies: primary median blur`);
     // Make height discrete -1 and 1.
     let landmass = elevation.map(v => (v >= 0 ? 1 : -1));
     dump2d(`${debugLabel}: unsmoothed terrain`, landmass.map(v=>Math.sign(v)), size, size);
@@ -1037,6 +1038,7 @@ function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minim
     dump2d(`${debugLabel}: smoothed terrain`, landmass.map(v=>Math.sign(v)), size, size);
     for (let i1 = 0; i1 < /*max passes*/16; i1++) {
         for (let i2 = 0; i2 < size; i2++) {
+            await progress(`${debugLabel}: fixing terrain anomalies: ${i1}: threshold smoothing ${i2}`);
             let signChanges;
             let signChangesAcc = 0;
             for (let r = 1; r <= terrainSmoothing ?? 0; r++) {
@@ -1051,27 +1053,32 @@ function fixTerrain(elevation, size, terrainSmoothing, smoothingThreshold, minim
         let changesAcc = 0;
         let changes;
         let thinnest;
+        await progress(`${debugLabel}: fixing terrain anomalies: ${i1}: erode and dilate pos`);
         [landmass, changes] = erodeAndDilate(landmass, size, true, minimumThickness);
         changesAcc += changes;
-        dump2d(`${debugLabel}: erodeAndDilate land (round ${i1}: ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        dump2d(`${debugLabel}: erodeAndDilate pos (round ${i1}: ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        await progress(`${debugLabel}: fixing terrain anomalies: ${i1}: fix thin masses pos`);
         [thinnest, changes] = fixThinMassesInPlaceFull(landmass, size, true, minimumThickness);
         changesAcc += changes;
-        dump2d(`${debugLabel}: fixThinMassesInPlace land (round ${i1}: ${thinnest} tightness, ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        dump2d(`${debugLabel}: fixThinMassesInPlace pos (round ${i1}: ${thinnest} tightness, ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
 
         const midFixLandmass = landmass.slice();
 
+        await progress(`${debugLabel}: fixing terrain anomalies: ${i1}: erode and dilate neg`);
         [landmass, changes] = erodeAndDilate(landmass, size, false, minimumThickness);
         changesAcc += changes;
-        dump2d(`${debugLabel}: erodeAndDilate sea (round ${i1}: ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        dump2d(`${debugLabel}: erodeAndDilate neg (round ${i1}: ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        await progress(`${debugLabel}: fixing terrain anomalies: ${i1}: fix thin masses neg`);
         [thinnest, changes] = fixThinMassesInPlaceFull(landmass, size, false, minimumThickness);
         changesAcc += changes;
-        dump2d(`${debugLabel}: fixThinMassesInPlace sea (round ${i1}: ${thinnest} tightness, ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
+        dump2d(`${debugLabel}: fixThinMassesInPlace neg (round ${i1}: ${thinnest} tightness, ${changes} fixes)`, landmass.map(v=>Math.sign(v)), size, size);
         if (changesAcc === 0) {
             break;
         }
         console.log(`${debugLabel}: Thinness corrections were made. Running extra passes.`);
         if (i1 >= 8 && i1 % 4 === 0) {
             console.log(`${debugLabel}: Struggling to stablize terrain. Leveling problematic regions.`);
+            await progress(`${debugLabel}: fixing terrain anomalies: ${i1}: leveling problematic regions`);
             const diff = zip2(midFixLandmass, landmass, (a, b)=>(a!==b ? 1 : 0));
             dump2d(`${debugLabel}: unstable (round ${i1})`, diff, size, size);
             for (let y = 0; y < size; y++) {
@@ -2106,7 +2113,7 @@ async function generateMap(params) {
         dump2d("calibrated terrain", elevation, size, size);
     }
     await progress("land planning: fixing terrain anomalies");
-    let landPlan = fixTerrain(elevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumLandSeaThickness, /*bias=*/(params.water < 0.5 ? 1 : -1), "landPlan");
+    let landPlan = await fixTerrain(elevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumLandSeaThickness, /*bias=*/(params.water < 0.5 ? 1 : -1), "land planning");
 
     let forests = null;
     if (params.forests > 0) {
@@ -2240,7 +2247,7 @@ async function generateMap(params) {
             );
             dump2d(`mountains at altitude ${altitude}`, mountainElevation, size, size);
             await progress(`mountains: altitude ${altitude}: fixing terrain anomalies`);
-            cliffPlan = fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumMountainThickness, /*bias=*/-1, "cliffPlan");
+            cliffPlan = await fixTerrain(mountainElevation, size, params.terrainSmoothing, params.smoothingThreshold, params.minimumMountainThickness, /*bias=*/-1, "mountains");
             await progress(`mountains: altitude ${altitude}: tracing cliffs`);
             let cliffs = zeroLinesToPaths(cliffPlan, size);
             await progress(`mountains: altitude ${altitude}: appling roughness mask to cliffs`);
