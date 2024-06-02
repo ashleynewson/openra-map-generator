@@ -1686,6 +1686,14 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
         updateFrom(fx, fy, fb);
     }
 
+    // Trace back and update tiles
+    const resultPath = [
+        {
+            x: end.x + minPointX,
+            y: end.y + minPointY,
+        }
+    ];
+
     const traceBackStep = function(tx, ty, tb) {
         const ti = ty * sizeX + tx;
         const til = borderToZ[tb] * sizeXY + ti;
@@ -1721,6 +1729,14 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
         const fy = ty - template.MovesY;
         const templateInfo = info.Tileset.Templates[template.Name];
         paintTemplate(tiles, tilesSize, fx - template.OffsetX + minPointX, fy - template.OffsetY + minPointY, templateInfo);
+        // Skip end point as it is recorded in the previous template.
+        for (let i = template.RelPathND.length - 2; i >= 0; i--) {
+            const point = template.RelPathND[i];
+            resultPath.push({
+                x: fx + point.x + minPointX,
+                y: fy + point.y + minPointY,
+            });
+        }
         return {
             x: fx,
             y: fy,
@@ -1728,7 +1744,6 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
         };
     };
 
-    // Trace back and update tiles
     {
         let tx = end.x;
         let ty = end.y;
@@ -1747,6 +1762,9 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
             p = traceBackStep(p.x, p.y, p.b);
         }
     }
+
+    // Traced back in reverse, so reverse the reversal.
+    return resultPath.reverse();
 }
 
 function identifyReplaceableTiles(tiles, size) {
@@ -1961,6 +1979,74 @@ function findPlayableRegions(tiles, entities, size) {
     return [regionMask, regions];
 }
 
+// Creates a size*size Int8Array where the values mean the following about the area:
+//   -1: Closest path travels anti-clockwise around it
+//    0: Unknown (no paths)
+//   +1: Closest path travels clockwise around it
+function pathChirality(size, paths) {
+    const chirality = new Int8Array(size * size);
+    let next = [];
+    const seedChirality = function(x, y, v, firstPass) {
+        if (x < 0 || x >= size || y < 0 || y >= size) {
+            return;
+        }
+        if (firstPass) {
+            // Some paths which overlap or go back on themselves
+            // might fight for chirality. Vote on it.
+            chirality[y * size + x] += v;
+        } else {
+            if (chirality[y * size + x] !== 0) {
+                return;
+            }
+            chirality[y * size + x] = v;
+        }
+        next.push([x, y]);
+    }
+    for (const path of paths) {
+        for (let i = 1; i < path.length; i++) {
+            const fx = path[i - 1].x;
+            const fy = path[i - 1].y;
+            const tx = path[i    ].x;
+            const ty = path[i    ].y;
+            const direction = calculateDirectionXY(tx - fx, ty - fy);
+            switch (direction) {
+            case DIRECTION_R:
+                seedChirality(fx    , fy    ,  1, true);
+                seedChirality(fx    , fy - 1, -1, true);
+                break;
+            case DIRECTION_D:
+                seedChirality(fx - 1, fy    ,  1, true);
+                seedChirality(fx    , fy    , -1, true);
+                break;
+            case DIRECTION_L:
+                seedChirality(fx - 1, fy - 1,  1, true);
+                seedChirality(fx - 1, fy    , -1, true);
+                break;
+            case DIRECTION_U:
+                seedChirality(fx    , fy - 1,  1, true);
+                seedChirality(fx - 1, fy - 1, -1, true);
+                break;
+            default:
+                die("unsupported direction");
+            }
+        }
+    }
+    dump2d("partial chirality", chirality, size, size);
+    // Spread out
+    const spread = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    while (next.length !== 0) {
+        const current = next;
+        next = [];
+        for (const [cx, cy] of current) {
+            for (const [ox, oy] of spread) {
+                seedChirality(cx + ox, cy + oy, chirality[cy * size + cx]);
+            }
+        }
+    }
+
+    return chirality;
+}
+
 async function generateMap(params) {
     const size = params.size ?? die("need size");
 
@@ -2037,25 +2123,48 @@ async function generateMap(params) {
         });
     }
 
-    const tiles = new Array(size * size);
+    const tiles = new Array(size * size).fill(null);
     const resources = new Uint8Array(size * size);
     const resourceDensities = new Uint8Array(size * size);
-
-    for (let n = 0; n < tiles.length; n++) {
-        if (landPlan[n] >= 0) {
-            tiles[n] = 't255';
-        } else {
-            tiles[n] = 't1i0';
-        }
-    }
 
     await progress("coastlines: tracing coastlines");
     let coastlines = zeroLinesToPaths(landPlan, size);
     coastlines = coastlines.map(coastline => tweakPath(coastline, size));
     await progress("coastlines: fitting and laying tiles");
+
+    const layedCoastlines = [];
     for (const coastline of coastlines) {
         coastline.type = "Coastline";
-        tilePath(tiles, size, coastline, random, params.minimumLandSeaThickness);
+        layedCoastlines.push(
+            tilePath(tiles, size, coastline, random, params.minimumLandSeaThickness)
+        );
+    }
+    await progress("coastlines: filling land and water");
+    const coastlineChirality = pathChirality(size, layedCoastlines);
+    dump2d("coastline chirality", coastlineChirality, size, size,
+        layedCoastlines.flat().map(v => ({
+            debugRadius: 0.5,
+            debugColor: "white",
+            x: v.x - 0.5,
+            y: v.y - 0.5,
+        }))
+    );
+    for (let n = 0; n < tiles.length; n++) {
+        if (tiles[n] !== null) {
+            continue;
+        }
+        if (coastlineChirality[n] > 0) {
+            tiles[n] = 't255';
+        } else if (coastlineChirality[n] < 0) {
+            tiles[n] = 't1i0';
+        } else {
+            // There weren't any coastlines
+            if (landPlan[n] >= 0) {
+                tiles[n] = 't255';
+            } else {
+                tiles[n] = 't1i0';
+            }
+        }
     }
 
     if (params.externalCircularBias > 0) {
