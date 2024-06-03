@@ -1,7 +1,7 @@
 # OpenRA Random Map Generator Prototype (unofficial)
 
 This is a prototype random map generator for OpenRA. It is by no means complete,
-but can already generate playable maps. [See the gallery](examples/example.md).
+but can already generate playable maps. [See the gallery](examples/examples.md).
 
 This prototype is written in JavaScript and can [run directly within a web browser](https://ashleynewson.github.io/openra-map-generator/version-20240603/).
 
