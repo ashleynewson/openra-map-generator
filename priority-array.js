@@ -1,24 +1,14 @@
-import LayeredArray from './layered-array.js';
-
 export default class PriorityArray {
     // If using a base, the base must not be changed during the
     // lifetime of the over instance.
-    constructor(size, base) {
-        base ??= null;
+    constructor(size) {
         this.size = size;
-        this.base = base;
-        if (base !== null) {
-            this.priorities = new LayeredArray(base.priorities);
-            this.indexToHeap = new LayeredArray(base.indexToHeap);
-            this.heapOfIndices = new LayeredArray(base.heapOfIndices);
-        } else {
-            this.priorities = new Float32Array(size).fill(1.0);
-            this.indexToHeap = new Uint32Array(size);
-            this.heapOfIndices = new Uint32Array(size);
-            for (let i = 0; i < this.size; i++) {
-                this.indexToHeap[i] = i;
-                this.heapOfIndices[i] = i;
-            }
+        this.priorities = new Float32Array(size).fill(1.0);
+        this.indexToHeap = new Uint32Array(size);
+        this.heapOfIndices = new Uint32Array(size);
+        for (let i = 0; i < this.size; i++) {
+            this.indexToHeap[i] = i;
+            this.heapOfIndices[i] = i;
         }
     }
 
@@ -115,21 +105,6 @@ export default class PriorityArray {
             this.bubbleDown(downH1);
             return true;
         }
-    }
-
-    merge() {
-        this.base ?? die("priority array is not based. (cringe)");
-        this.priorities.merge();
-        this.indexToHeap.merge();
-        this.heapOfIndices.merge();
-    }
-
-    rebase(base) {
-        this.base ?? die("priority array is not previously based");
-        this.base = base;
-        this.priorities.rebase(base.priorities);
-        this.indexToHeap.rebase(base.indexToHeap);
-        this.heapOfIndices.rebase(base.heapOfIndices);
     }
 }
 

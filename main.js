@@ -1,7 +1,5 @@
 import Random from './random.js';
-import LayeredArray from './layered-array.js';
 import PriorityArray from './priority-array.js';
-import TileState from './tile-state.js';
 
 window.debugUtils = {
     Random,
