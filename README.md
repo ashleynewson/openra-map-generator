@@ -1,17 +1,15 @@
 # OpenRA Random Map Generator Prototype (unofficial)
 
 This is a prototype random map generator for OpenRA. It is by no means complete,
-but can already generate playable maps.
+but can already generate playable maps. [See the gallery](examples/example.md).
 
-This project **does not and will never** make use of machine learning/generative AI.
+This prototype is written in JavaScript and can [run directly within a web browser](https://ashleynewson.github.io/openra-map-generator/version-20240603/).
 
-This prototype is written in JavaScript and can run directly within a browser.
-
-## Setting up locally
+## Setting up locally (for development)
 
 1. Checkout the repository.
 
-2. Obtain a copy of https://github.com/OpenRA/OpenRA/blob/bleed/mods/ra/tilesets/temperat.yaml and save it the root of the repository.
+2. Obtain a copy of https://github.com/OpenRA/OpenRA/blob/bleed/mods/ra/tilesets/temperat.yaml and save it to the root of the repository. (This is a GPL-licensed file and cannot be included in this project directly.)
 
 3. Run `perl ./compile-tile-info.pl` to generate `temperat-info.json`
 
@@ -44,7 +42,9 @@ state that computer-generated works without sufficient human input are
 inelligible for copyright protection. There are nuances here which I am not
 qualified to discuss. (I am not a copyright lawyer! This is not legal advice!)
 
-### Why not use generative AI?
+### Does this use generative AI?
+
+This project **does not and will never** make use of machine learning/generative AI.
 
 - Generative AI can require fairly demanding compute resources (memory,
   processing, storage).
@@ -54,7 +54,8 @@ qualified to discuss. (I am not a copyright lawyer! This is not legal advice!)
 
 - Generative AI can be difficult to reason about.
 
-- Generative AI may have unforseen limitations that more conventional software can solve.
+- Generative AI currently may have unforseen limitations that more conventional software can solve.
+  (Of course, the reverse can also be true - otherwise people wouldn't ever use it.)
 
 I have an ambition that my work could eventually make it into upstream OpenRA or
 otherwise be run on player's computers to generate maps in reasonable time.
