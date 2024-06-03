@@ -69,13 +69,29 @@ The MIT license is more permissive than GPL. This allows it to be used in GPLed
 works as well as non-GPLed works. This could be important if the map generation
 project were to be included in something other than the OpenRA project itself.
 
-For example, many users create and release maps under various licenses,
-including ones which do not allow derivative works. In future, parts of the map
-generation project could potentially be integrated into scripts in these
-maps. Maps generally don't use GPL, and may use an incompatible license. (In
-fact, people often don't even bother to specify a license for their maps.)
+OpenRA isn't necessarily the only project which could benefit from this
+work. There are other C&C/RA communities outside of OpenRA which, to my
+knowledge, also have no viable random map generators.
+
+Another aspect to consider, even within the realm of OpenRA, is that many users
+create and release maps under various licenses, including ones which do not
+allow derivative works. In future, parts of the map generation project could
+potentially be integrated into scripts in these maps. Maps generally don't use
+GPL, and may use an incompatible license. (In fact, people often don't even
+bother to specify a license for their maps.)
 
 More permissive licenses can also encourage contributions from additional
-developers. (Though it can also discourage others.)
+developers. (Though it can also discourage others.) Part of it comes down to
+personal taste.
 
-And, of course, part of it comes down to personal taste.
+Ultimately, this is presently a prototype written in JavaScript, which doesn't
+make sense for direct inclusion in other projects anyway. My primary goal here
+is to explore, demonstrate, and offer up algorithms that could later be
+re-written properly for a target project.
+
+### Your code is a mess
+
+Yeah, sorry. It's a prototype! I optimized for experimentation.
+
+I might focus instead on documenting the algorithms before cleaning up the
+code.
