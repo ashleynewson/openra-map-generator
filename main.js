@@ -2687,7 +2687,7 @@ Tileset: TEMPERAT
 MapSize: ${size+2},${size+2}
 Bounds: 1,1,${size},${size}
 Visibility: Lobby
-Categories: Conquest
+Categories: ${params.categories !== "" ? params.categories : "Random"}
 
 Players:
 \tPlayerReference@Neutral:
@@ -2853,6 +2853,7 @@ const settingsMetadata = {
     rotations: {init: 2, type: "int"},
     mirror: {init: 0, type: "int"},
     players: {init: 1, type: "int"},
+    categories: {init: "Random", type: "string"},
     customName: {init: "", type: "string"},
 
     wavelengthScale: {init: 1.0, type: "float"},
