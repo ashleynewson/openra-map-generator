@@ -2847,57 +2847,104 @@ export async function generate() {
     }
 }
 
-const settingsMetadata = {
-    seed: {init: -2024525772, type: "int"},
-    size: {init: 96, type: "int"},
-    rotations: {init: 2, type: "int"},
-    mirror: {init: 0, type: "int"},
-    players: {init: 1, type: "int"},
-    categories: {init: "Random", type: "string"},
-    customName: {init: "", type: "string"},
+const settingsDefinitions = [
+    {section: "Primary settings"},
+    {name: "seed", init: -2024525772, type: "int", label: "Seed"},
+    {name: "size", init: 96, type: "int", label: "Size"},
+    {name: "rotations", init: 2, type: "int", label: "Rotations (minimum 1) (multiplies players and entities)"},
+    {name: "mirror", init: 0, type: "int", label: "Mirror direction (0 (none), 1, 2, 3, 4) (doubles players and entities)"},
+    {name: "players", init: 1, type: "int", label: "Players"},
+    {name: "categories", init: "Random", type: "string", label: "Categories (for filtering in OpenRA map selector)"},
+    {name: "customName", init: "", type: "string", label: "Customise map name (regenerate to apply!)"},
 
-    wavelengthScale: {init: 1.0, type: "float"},
-    water: {init: 0.5, type: "float"},
-    mountains: {init: 0.1, type: "float"},
-    forests: {init: 0.025, type: "float"},
-    externalCircularBias: {init: 0, type: "int"},
-    terrainSmoothing: {init: 4, type: "int"},
-    smoothingThreshold: {init: 0.33, type: "float"},
-    minimumLandSeaThickness: {init: 5, type: "int"},
-    minimumMountainThickness: {init: 5, type: "int"},
-    maximumAltitude: {init: 8, type: "int"},
-    roughnessRadius: {init: 5, type: "int"},
-    roughness: {init: 0.5, type: "float"},
-    minimumTerrainContourSpacing: {init: 6, type: "int"},
-    minimumCliffLength: {init: 10, type: "int"},
-    forestClumpiness: {init: 0.5, type: "float"},
-    denyWalledAreas: {init: true, type: "bool"},
-    enforceSymmetry: {init: false, type: "bool"},
+    {section: "Terrain settings"},
+    {name: "wavelengthScale", init: 1.0, type: "float", label: "Terrain noise wavelength scale"},
+    {name: "water", init: 0.5, type: "float", label: "Water fraction"},
+    {name: "mountains", init: 0.1, type: "float", label: "Mountain fraction"},
+    {name: "forests", init: 0.025, type: "float", label: "Forest fraction"},
+    {name: "externalCircularBias", init: 0, type: "int", label: "Bias external circle altitude (-1, 0, 1)"},
+    {name: "terrainSmoothing", init: 4, type: "int", label: "Terrain smoothing"},
+    {name: "smoothingThreshold", init: 0.33, type: "float", label: "Iterative smoothing threshold"},
+    {name: "minimumLandSeaThickness", init: 5, type: "int", label: "Minimum land/sea terrain thickness"},
+    {name: "minimumMountainThickness", init: 5, type: "int", label: "Minimum mountain terrain thickness"},
+    {name: "maximumAltitude", init: 8, type: "int", label: "Maximum mountain altitude"},
+    {name: "roughnessRadius", init: 5, type: "int", label: "Terrain roughness sampling distance (terrain elevation variance sampling distance)"},
+    {name: "roughness", init: 0.5, type: "float", label: "Terrain roughness (cliffiness of mountain contours)"},
+    {name: "minimumTerrainContourSpacing", init: 6, type: "int", label: "Minimum distance between terrain contours"},
+    {name: "minimumCliffLength", init: 10, type: "int", label: "Minimum cliff length"},
+    {name: "forestClumpiness", init: 0.5, type: "float", label: "Forest clumpiness"},
+    {name: "denyWalledAreas", init: true, type: "bool", label: "Deny access to regions which might not be accessible to all players"},
+    {name: "enforceSymmetry", init: false, type: "bool", label: "Improve symmetry of terrain passability with forest"},
 
-    createEntities: {init: true, type: "bool"},
-    startingMines: {init: 3, type: "int"},
-    startingOre: {init: 3, type: "int"},
-    centralReservation: {init: 16, type: "int"},
-    spawnRegionSize: {init: 16, type: "int"},
-    spawnBuildSize: {init: 8, type: "int"},
-    spawnMines: {init: 3, type: "int"},
-    spawnOre: {init: 3, type: "int"},
-    maximumExpansions: {init: 4, type: "int"},
-    minimumExpansionSize: {init: 2, type: "int"},
-    maximumExpansionSize: {init: 12, type: "int"},
-    expansionInner: {init: 4, type: "int"},
-    expansionBorder: {init: 4, type: "int"},
-    expansionMines: {init: 0.02, type: "float"},
-    expansionOre: {init: 5, type: "int"},
-    gemUpgrade: {init: 0.1, type: "float"},
-    minimumBuildings: {init: 0, type: "int"},
-    maximumBuildings: {init: 3, type: "int"},
-    weightFcom: {init: 1, type: "float"},
-    weightHosp: {init: 2, type: "float"},
-    weightMiss: {init: 2, type: "float"},
-    weightBio: {init: 0, type: "float"},
-    weightOilb: {init: 8, type: "float"},
-};
+    {section: "Entity settings"},
+    {name: "createEntities", init: true, type: "bool", label: "Create entities"},
+    {name: "startingMines", init: 3, type: "int", label: "Starting mines"},
+    {name: "startingOre", init: 3, type: "int", label: "Starting ore"},
+    {name: "centralReservation", init: 16, type: "int", label: "Central/Mirror player reservation"},
+    {name: "spawnRegionSize", init: 16, type: "int", label: "Spawn region size"},
+    {name: "spawnBuildSize", init: 8, type: "int", label: "Spawn build size"},
+    {name: "spawnMines", init: 3, type: "int", label: "Number of spawn ore mines"},
+    {name: "spawnOre", init: 3, type: "int", label: "Spawn ore size"},
+    {name: "maximumExpansions", init: 4, type: "int", label: "Maximum expansion count"},
+    {name: "minimumExpansionSize", init: 2, type: "int", label: "Minimum expansion size"},
+    {name: "maximumExpansionSize", init: 12, type: "int", label: "Maximum expansion size"},
+    {name: "expansionInner", init: 4, type: "int", label: "Expansion inner size"},
+    {name: "expansionBorder", init: 4, type: "int", label: "Expansion border size"},
+    {name: "expansionMines", init: 0.02, type: "float", label: "Expansion extra mine weight"},
+    {name: "expansionOre", init: 5, type: "int", label: "Expansion ore size"},
+    {name: "gemUpgrade", init: 0.1, type: "float", label: "Ore to gem upgrade probability"},
+    {name: "minimumBuildings", init: 0, type: "int", label: "Minimum neutral building count"},
+    {name: "maximumBuildings", init: 3, type: "int", label: "Maximum neutral building count"},
+    {name: "weightFcom", init: 1, type: "float", label: "Building weight: Forward Command"},
+    {name: "weightHosp", init: 2, type: "float", label: "Building weight: Hospital"},
+    {name: "weightMiss", init: 2, type: "float", label: "Building weight: Communications Center"},
+    {name: "weightBio", init: 0, type: "float", label: "Building weight: Biological Lab"},
+    {name: "weightOilb", init: 8, type: "float", label: "Building weight: Oil Derrick"},
+];
+
+const settingsMetadata = {};
+{
+    const settingsDiv = document.getElementById("settings-div");
+    let section = "???";
+    for (const setting of settingsDefinitions) {
+        if (typeof(setting.section) !== "undefined") {
+            section = setting.section;
+            const sectionHeading = document.createElement("p");
+            sectionHeading.textContent = section;
+            settingsDiv.append(sectionHeading);
+        }
+        if (typeof(setting.name) !== "undefined") {
+            settingsMetadata[setting.name] = setting;
+            const el = document.createElement("input");
+            setting.el = el;
+            el.id = `setting-${camelToKebab(setting.name)}`;
+            const type = setting.type;
+            switch (type) {
+            case "int":
+                el.type = "text";
+                break;
+            case "float":
+                el.type = "text";
+                break;
+            case "string":
+                el.type = "text";
+                break;
+            case "bool":
+                el.type = "checkbox";
+                break;
+            default:
+                die(`Unknown type ${type}`);
+            }
+            settingsDiv.append(el);
+            const label = document.createElement("label");
+            label.textContent = setting.label;
+            settingsDiv.append(label);
+            settingsDiv.append(document.createElement("br"));
+            el.onchange = markDirty;
+            el.oninput = markDirty;
+        }
+    }
+}
 
 function camelToKebab(str) {
     return str.replaceAll(/(?=[A-Z])/g, '-').toLowerCase();
@@ -2912,8 +2959,8 @@ export function readSettings() {
     const settings = {};
     for (const settingName of Object.keys(settingsMetadata)) {
         const type = settingsMetadata[settingName].type;
-        const elementName = "setting-" + camelToKebab(settingName);
-        const el = document.getElementById(elementName) ?? die(`Missing setting element ${elementName}`);
+        const elementName = `setting-${camelToKebab(settingName)}`;
+        const el = settingsMetadata[settingName].el;
         let value;
         switch (type) {
         case "int":
@@ -2941,30 +2988,24 @@ export function writeSettings(settings) {
     for (const settingName of Object.keys(settingsMetadata)) {
         const type = settingsMetadata[settingName].type;
         const elementName = "setting-" + camelToKebab(settingName);
-        const el = document.getElementById(elementName) ?? die(`Missing setting element ${elementName}`);
+        const el = settingsMetadata[settingName].el;
         const value = settings[settingName] ?? settingsMetadata[settingName].init;
         switch (type) {
         case "int":
             el.value = value;
-            el.type = "text";
             break;
         case "float":
             el.value = value;
-            el.type = "text";
             break;
         case "string":
             el.value = value;
-            el.type = "text";
             break;
         case "bool":
             el.checked = value;
-            el.type = "checkbox";
             break;
         default:
             die(`Unknown type ${type}`);
         }
-        el.onchange = markDirty;
-        el.oninput = markDirty;
     }
 }
 
