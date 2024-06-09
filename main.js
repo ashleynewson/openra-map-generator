@@ -615,7 +615,7 @@ function zoneColor(type) {
     }
 }
 
-function generateFeatureRing(random, location, type, radius1, radius2, params) {
+function generateFeatureRing(random, location, type, radius1, radius2, params, quantities) {
     radius1 ?? die("bad radius1");
     Number.isNaN(radius1) && die("radius1 is NaN");
     radius2 ?? die("bad radius2");
@@ -635,24 +635,26 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
     }
     switch (type) {
     case "spawn":
-        for (let i = 0; i < params.spawnMines; i++) {
+        for (let i = 0; i < quantities.mineCount; i++) {
             const feature = {
                 type: randomMineType(),
-                radius: params.spawnOre,
-                size: params.spawnOre * 2 - 1,
+                resourceBias: params.spawnResourceBias,
+                radius: 1,
+                size: 1,
             };
             ring.push(feature);
             ringBudget -= feature.size;
         }
         break;
     case "expansion":
-        const mines = 1 + ((random.f32x() * circumference * params.expansionMines) | 0);
+        const mines = quantities.mineCount;
         for (let i = 0; i < mines && ringBudget > 0; i++) {
-            const radius = (random.f32x() * params.expansionOre) | 0;
+            const radius = 1;
             const feature = {
                 type: randomMineType(),
-                radius,
-                size: radius * 2 - 1,
+                resourceBias: 1.0,
+                radius: 1,
+                size: 1,
             };
             ring.push(feature);
             ringBudget -= feature.size;
@@ -698,6 +700,7 @@ function generateFeatureRing(random, location, type, radius1, radius2, params) {
                     x: Math.round(location.x + rx) | 0,
                     y: Math.round(location.y + ry) | 0,
                     type: feature.type,
+                    resourceBias: feature.resourceBias,
                     radius: feature.radius,
                     debugRadius: feature.radius,
                     debugColor: zoneColor(feature.type),
@@ -2117,7 +2120,6 @@ async function generateMap(params) {
     if (params.forests > 0) {
         await progress("forests: generating noise");
         // Generate this now so that the noise isn't effected by random settings.
-        await progress("generating forest map");
         forests = fractalNoise2dWithSymetry({
             random,
             size,
@@ -2127,6 +2129,17 @@ async function generateMap(params) {
             amp_func: (wavelength => (wavelength**params.forestClumpiness)),
         });
     }
+
+    await progress("ore: generating noise");
+    // Generate this now so that the noise isn't effected by random settings.
+    const orePattern = fractalNoise2dWithSymetry({
+        random,
+        size,
+        rotations: params.rotations,
+        mirror: params.mirror,
+        wavelengthScale: params.wavelengthScale,
+        amp_func: (wavelength => (wavelength**params.oreClumpiness)),
+    });
 
     const tiles = new Array(size * size).fill(null);
     const resources = new Uint8Array(size * size);
@@ -2352,9 +2365,11 @@ async function generateMap(params) {
             // Reserve the center of the map - otherwise it will mess with rotations
             const midPoint = (size >> 1) * (size + 1);
             zoneable[midPoint] = -1;
-            zoneable[midPoint + 1] = -1;
-            zoneable[midPoint + size] = -1;
-            zoneable[midPoint + size + 1] = -1;
+            if ((size & 1) === 0) {
+                zoneable[midPoint - 1] = -1;
+                zoneable[midPoint - size] = -1;
+                zoneable[midPoint - size - 1] = -1;
+            }
         }
         let roominess = calculateRoominess(zoneable, size);
 
@@ -2383,7 +2398,7 @@ async function generateMap(params) {
                 )
             );
 
-            const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", radius1, radius2, params);
+            const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", radius1, radius2, params, {mineCount: params.spawnMines});
             zones.push(
                 ...rotateAndMirror(
                     [templatePlayer, ...spawnZones],
@@ -2404,31 +2419,36 @@ async function generateMap(params) {
 
         // Expansions
         await progress(`entities: zoning for expansions`);
-        for (let i = 0; i < (params.maximumExpansions ?? 0); i++) {
-            roominess = calculateRoominess(roominess, size);
-            dump2d(`expansion roominess ${i}`, roominess, size, size);
-            const templateExpansion = findRandomMax(random, roominess, size, params.maximumExpansionSize + params.expansionBorder);
-            const room = templateExpansion.value - 1;
-            let radius2 = room - params.expansionBorder;
-            if (radius2 < params.minimumExpansionSize) {
-                break;
-            }
-            if (radius2 > params.maximumExpansionSize) {
-                radius2 = params.maximumExpansionSize;
-            }
-            const radius1 = Math.min(Math.min(params.expansionInner, room), radius2);
+        {
+            let minesRemaining = (params.maximumExpansionMines ?? 0);
+            while (minesRemaining > 0) {
+                roominess = calculateRoominess(roominess, size);
+                dump2d(`expansion roominess (${minesRemaining} mines remaining)`, roominess, size, size);
+                const templateExpansion = findRandomMax(random, roominess, size, params.maximumExpansionSize + params.expansionBorder);
+                const room = templateExpansion.value - 1;
+                let radius2 = room - params.expansionBorder;
+                if (radius2 < params.minimumExpansionSize) {
+                    break;
+                }
+                if (radius2 > params.maximumExpansionSize) {
+                    radius2 = params.maximumExpansionSize;
+                }
+                const radius1 = Math.min(Math.min(params.expansionInner, room), radius2);
 
-            const expansionZones = generateFeatureRing(random, templateExpansion, "expansion", radius1, radius2, params);
-            zones.push(
-                ...rotateAndMirror(
-                    expansionZones,
-                    size,
-                    params.rotations,
-                    params.mirror,
-                )
-            );
-            for (let zone of zones) {
-                reserveCircleInPlace(roominess, size, zone.x, zone.y, zone.radius, -1);
+                const mineCount = Math.min(minesRemaining, 1 + random.u32() % params.maximumMinesPerExpansion);
+                minesRemaining -= mineCount;
+                const expansionZones = generateFeatureRing(random, templateExpansion, "expansion", radius1, radius2, params, {mineCount});
+                zones.push(
+                    ...rotateAndMirror(
+                        expansionZones,
+                        size,
+                        params.rotations,
+                        params.mirror,
+                    )
+                );
+                for (let zone of zones) {
+                    reserveCircleInPlace(roominess, size, zone.x, zone.y, zone.radius, -1);
+                }
             }
         }
 
@@ -2478,6 +2498,123 @@ async function generateMap(params) {
         }
 
         await progress(`entities: converting zones to entities`);
+
+        {
+            const oreStrength = new Float32Array(size * size);
+            const gemStrength = new Float32Array(size * size);
+            for (const zone of zones) {
+                switch (zone.type) {
+                case "mine":
+                    reserveCircleInPlace(oreStrength, size, zone.x, zone.y, 16, (rSq, v) => Math.max(v, zone.resourceBias/(1 + Math.sqrt(rSq))));
+                    break;
+                case "gmine":
+                    reserveCircleInPlace(gemStrength, size, zone.x, zone.y, 16, (rSq, v) => Math.max(v, zone.resourceBias/(1 + Math.sqrt(rSq))));
+                    break;
+                    // Default ignore
+                }
+            }
+            calibrateHeightInPlace(
+                orePattern,
+                0.0,
+                0.0,
+            );
+            {
+                const max = Math.max(...orePattern);
+                for (let n = 0; n < orePattern.length; n++) {
+                    orePattern[n] /= max;
+                    orePattern[n] += params.oreUniformity;
+                }
+            }
+            dump2d("ore pattern", orePattern, size, size);
+            dump2d("ore strength", oreStrength, size, size);
+            dump2d("gem strength", gemStrength, size, size);
+            const priorities = new PriorityArray(size * size).fill(-Infinity);
+            let remaining = params.resourcesPerPlayer * players.length;
+            {
+                const debugOrePlan = new Float32Array(size * size);
+                for (let n = 0; n < size * size; n++) {
+                    if (playableArea[n]) {
+                        priorities.set(n, orePattern[n] * Math.max(oreStrength[n], gemStrength[n]));
+                        debugOrePlan[n] = orePattern[n] * Math.max(oreStrength[n], gemStrength[n]);
+                    }
+                }
+                dump2d("ore plan (sq)", debugOrePlan.map(Math.sqrt), size, size);
+            }
+            // Return value of a given square.
+            // See https://github.com/OpenRA/OpenRA/blob/9302bac6199fbc925a85fd7a08fc2ba4b9317d16/OpenRA.Mods.Common/Traits/World/ResourceLayer.cs#L144-L166
+            // https://github.com/OpenRA/OpenRA/blob/9302bac6199fbc925a85fd7a08fc2ba4b9317d16/OpenRA.Mods.Common/Traits/World/EditorResourceLayer.cs#L175-L183
+            const checkValue = function(cx, cy) {
+                if (cx < 0 || cx >= size || cy < 0 || cy >= size) {
+                    return 0;
+                }
+                const resource = resources[cy * size + cx];
+                if (resource === 0) {
+                    return 0;
+                }
+                let adjacent = 0;
+                for (let y = cy - 1; y <= cy + 1; y++) {
+                    for (let x = cx - 1; x <= cx + 1; x++) {
+                        if (x < 0 || x >= size || y < 0 || y >= size) {
+                            continue;
+                        }
+                        if (resources[y * size + x] === resource) {
+                            adjacent++;
+                        }
+                    }
+                }
+                const maxDensity =
+                    resource === 1 ? 12 : // ore
+                    resource === 2 ? 3  : // gems
+                    die("assertion failed");
+                const valuePerDensity =
+                    resource === 1 ? 25 : // ore
+                    resource === 2 ? 50  : // gems
+                    die("assertion failed");
+                const density = Math.max(maxDensity * adjacent / /*maxAdjacent=*/9, 1) | 0;
+                // density + 1 to mirror a bug that got ossified due to balancing.
+                return valuePerDensity * (density + 1);
+            };
+            const checkValue3by3 = function(cx, cy) {
+                let total = 0;
+                for (let y = cy - 1; y <= cy + 1; y++) {
+                    for (let x = cx - 1; x <= cx + 1; x++) {
+                        total += checkValue(x, y);
+                    }
+                }
+                return total;
+            };
+            // Set and return change in overall value.
+            const addResource = function(p, resource, density) {
+                const cx = p.x;
+                const cy = p.y;
+                const ci = p.y * size + p.x;
+                priorities.set(ci, -Infinity);
+                if (resources[ci] !== 0) {
+                    // Generally shouldn't happen, but perhaps a rotation/mirror related inaccuracy.
+                    return 0;
+                }
+                let oldValue = checkValue3by3(cx, cy);
+                resources[ci] = resource;
+                resourceDensities[ci] = density;
+                let newValue = checkValue3by3(cx, cy);
+                return newValue - oldValue;
+            };
+            while (remaining > 0) {
+                const n = priorities.getMaxIndex();
+                if (priorities.get(n) === -Infinity) {
+                    console.log("Could not meet resource target");
+                    break;
+                }
+                const op = {x: (n % size) | 0, y: (n / size) | 0};
+                const ps = rotateAndMirror([op], size, params.rotations, params.mirror);
+                if (oreStrength[n] >= gemStrength[n]) {
+                    ps.forEach((p) => {remaining -= addResource(p, 1, 12)});
+                } else {
+                    ps.forEach((p) => {remaining -= addResource(p, 2, 3)});
+                }
+            }
+        }
+
         for (const zone of zones) {
             switch (zone.type) {
             case "mine":
@@ -2487,9 +2624,6 @@ async function generateMap(params) {
                     x: zone.x,
                     y: zone.y,
                 });
-                reserveCircleInPlace(resources, size, zone.x, zone.y, zone.radius, 1);
-                // Density seems to be a constant in map format
-                reserveCircleInPlace(resourceDensities, size, zone.x, zone.y, zone.radius, 12);
                 break;
             case "gmine":
                 entities.push({
@@ -2498,9 +2632,6 @@ async function generateMap(params) {
                     x: zone.x,
                     y: zone.y,
                 });
-                reserveCircleInPlace(resources, size, zone.x, zone.y, zone.radius, 2);
-                // Density seems to be a constant in map format
-                reserveCircleInPlace(resourceDensities, size, zone.x, zone.y, zone.radius, 3);
                 break;
             case "fcom":
             case "hosp":
@@ -2878,21 +3009,21 @@ const settingsDefinitions = [
 
     {section: "Entity settings"},
     {name: "createEntities", init: true, type: "bool", label: "Create entities"},
-    {name: "startingMines", init: 3, type: "int", label: "Starting mines"},
-    {name: "startingOre", init: 3, type: "int", label: "Starting ore"},
     {name: "centralReservation", init: 16, type: "int", label: "Central/Mirror player reservation"},
     {name: "spawnRegionSize", init: 16, type: "int", label: "Spawn region size"},
     {name: "spawnBuildSize", init: 8, type: "int", label: "Spawn build size"},
     {name: "spawnMines", init: 3, type: "int", label: "Number of spawn ore mines"},
-    {name: "spawnOre", init: 3, type: "int", label: "Spawn ore size"},
-    {name: "maximumExpansions", init: 4, type: "int", label: "Maximum expansion count"},
+    {name: "spawnResourceBias", init: 1.25, type: "float", label: "Bias toward spawns for starting resources"},
+    {name: "resourcesPerPlayer", init: 50000, type: "int", label: "Starting total resource value per player"},
+    {name: "gemUpgrade", init: 0.1, type: "float", label: "Ore to gem upgrade probability"},
+    {name: "oreUniformity", init: 0.25, type: "float", label: "Ore uniformity"},
+    {name: "oreClumpiness", init: 0.25, type: "float", label: "Ore clumpiness"},
+    {name: "maximumExpansionMines", init: 5, type: "int", label: "Target expansion mine count per player"},
+    {name: "maximumMinesPerExpansion", init: 2, type: "int", label: "Maximum mines per expansion"},
     {name: "minimumExpansionSize", init: 2, type: "int", label: "Minimum expansion size"},
     {name: "maximumExpansionSize", init: 12, type: "int", label: "Maximum expansion size"},
-    {name: "expansionInner", init: 4, type: "int", label: "Expansion inner size"},
-    {name: "expansionBorder", init: 4, type: "int", label: "Expansion border size"},
-    {name: "expansionMines", init: 0.02, type: "float", label: "Expansion extra mine weight"},
-    {name: "expansionOre", init: 5, type: "int", label: "Expansion ore size"},
-    {name: "gemUpgrade", init: 0.1, type: "float", label: "Ore to gem upgrade probability"},
+    {name: "expansionInner", init: 2, type: "int", label: "Expansion inner size"},
+    {name: "expansionBorder", init: 1, type: "int", label: "Expansion border size"},
     {name: "minimumBuildings", init: 0, type: "int", label: "Minimum neutral building count"},
     {name: "maximumBuildings", init: 3, type: "int", label: "Maximum neutral building count"},
     {name: "weightFcom", init: 1, type: "float", label: "Building weight: Forward Command"},
