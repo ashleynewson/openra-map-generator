@@ -515,6 +515,21 @@ function rotateAndMirror(originals, size, rotations, mirror) {
     return projections;
 }
 
+function rotateAndMirrorGrid(input, size, rotations, mirror, combineFunction) {
+    const output = input.slice();
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const ps = rotateAndMirror([{x, y}], size, rotations, mirror);
+            for (const p of ps) {
+                p.n = p.y * size + p.x;
+                p.v = input[p.n];
+            }
+            output[y * size * x] = combineFunction(ps);
+        }
+    }
+    return output;
+}
+
 function calculateSpawnPreferences(roominess, size, centralReservation, spawnRegionSize, mirror) {
     const preferences = roominess.map(r => Math.min(r, spawnRegionSize));
     const centralReservationSq = centralReservation * centralReservation;
@@ -1797,7 +1812,7 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random, r
     const obstacleTotalArea = permittedObstacles.map(t => t.Area).reduce((a, b) => a + b);
     const obstacleTotalWeight = permittedObstacles.map(t => t.Weight).reduce((a, b) => a + b);
     // Give 1-by-1 entities the final pass, as they are most flexible.
-    obstaclesByArea.push(permittedObstacles.filter(o => {o.Entity && o.Area === 1}));
+    obstaclesByArea.push(permittedObstacles.filter(o => (o.Entity && o.Area === 1)));
     const sizeSize = size * size;
     const maskIndices = new Uint32Array(sizeSize);
     const remaining = new Uint8Array(sizeSize);
@@ -1872,9 +1887,6 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random, r
             const obstacle = random.pickWeighted(obstacles, obstacleWeights);
             const py = (n / size) | 0;
             const px = (n % size) | 0;
-            if (px === 80 && py === 97) {
-                breakpoint();
-            }
             const inContract =
                 obstacle.Template ? REPLACEABILITY_TILE
                                   : obstacle.Tile ? REPLACEABILITY_ANY
@@ -1911,6 +1923,23 @@ function obstructArea(tiles, entities, size, mask, permittedObstacles, random, r
     }
 }
 
+// Set positions occupied by entities to a given value
+function reserveForEntitiesInPlace(grid, entities, size, setTo) {
+    setTo ?? die("missing setTo");
+    for (const entity of entities) {
+        const def = info.EntityInfo[entity.type];
+        for (const [ox, oy] of def.Shape) {
+            const x = entity.x + ox;
+            const y = entity.y + oy;
+            if (x < 0 || x >= size || y < 0 || y >= size) {
+                continue;
+            }
+            grid[y * size + x] = setTo;
+        }
+    }
+    return grid;
+}
+
 function findPlayableRegions(tiles, entities, size) {
     const regions = [];
     const regionMask = new Uint32Array(size * size);
@@ -1929,32 +1958,26 @@ function findPlayableRegions(tiles, entities, size) {
         1,
         /*invert=*/true
     );
-    for (const entity of entities) {
-        const def = info.EntityInfo[entity.type];
-        for (const [ox, oy] of def.Shape) {
-            const x = entity.x + ox;
-            const y = entity.y + oy;
-            if (x < 0 || x >= size || y < 0 || y >= size) {
-                continue;
-            }
-            playable[y * size + x] = 0;
-        }
-    }
-    const addToRegion = function(region, i) {
+    reserveForEntitiesInPlace(playable, entities, size, PLAYABILITY_PARTIAL);
+    dump2d("playable", playable, size, size);
+    const addToRegion = function(region, i, fullyPlayable) {
         regionMask[i] = region.id;
         region.area++;
+        if (fullyPlayable) {
+            region.playableArea++;
+        }
         if (externalCircle[i]) {
             region.externalCircle = true;
         }
     };
     const fill = function(region, startX, startY) {
-        addToRegion(region, startY * size + startX);
-        let next = [[startX, startY]];
+        addToRegion(region, startY * size + startX, true);
+        let next = [[startX, startY, true]];
         const spread = [[1, 0], [-1, 0], [0, 1], [0, -1]];
         while (next.length !== 0) {
             const current = next;
             next = [];
-            for (const [cx, cy] of current) {
+            for (const [cx, cy, fullyPlayable] of current) {
                 for (const [ox, oy] of spread) {
                     let x = cx + ox;
                     let y = cy + oy;
@@ -1962,9 +1985,14 @@ function findPlayableRegions(tiles, entities, size) {
                         continue;
                     }
                     const i = y * size + x;
-                    if (regionMask[i] === 0 && playable[i]) {
-                        addToRegion(region, i);
-                        next.push([x, y]);
+                    if (regionMask[i] === 0) {
+                        if (fullyPlayable && playable[i] === PLAYABILITY_PLAYABLE) {
+                            addToRegion(region, i, true);
+                            next.push([x, y, true]);
+                        } else if (playable[i] === PLAYABILITY_PARTIAL) {
+                            addToRegion(region, i, false);
+                            next.push([x, y, false]);
+                        }
                     }
                 }
             }
@@ -1973,7 +2001,7 @@ function findPlayableRegions(tiles, entities, size) {
     for (let startY = 0; startY < size; startY++) {
         for (let startX = 0; startX < size; startX++) {
             const startI = startY * size + startX;
-            if (regionMask[startI] === 0 && playable[startI]) {
+            if (regionMask[startI] === 0 && playable[startI] === PLAYABILITY_PLAYABLE) {
                 const region = {
                     area: 0,
                     id: regions.length + 1,
@@ -2057,6 +2085,8 @@ function pathChirality(size, paths) {
 
 async function generateMap(params) {
     const size = params.size ?? die("need size");
+
+    const trivialRotate = [1, 2, 4].includes(params.rotations);
 
     // Terrain generation
     if (params.water < 0.0 || params.water > 1.0) {
@@ -2310,6 +2340,79 @@ async function generateMap(params) {
         obstructArea(tiles, entities, size, forests, info.ObstacleInfo.Forest, random);
     }
 
+    if (params.enforceSymmetry) {
+        await progress(`symmetry enforcement: analysing`);
+        if (!trivialRotate) {
+            die("cannot use symmetry enforcement on non-trivial rotations");
+        }
+        // const equitability = new Uint8Array(size * size).fill(1);
+        const checkPoint = function(x, y, base) {
+            const i = y * size + x;
+            const other = codeMap[tiles[i]].Type;
+            if (base === other) {
+                return true;
+            }
+            switch (base) {
+            case "River":
+            case "Rock":
+            case "Water":
+                return true;
+            case "Beach":
+            case "Clear":
+            case "Rough":
+                switch (other) {
+                case "River":
+                case "Rock":
+                case "Water":
+                    return false;
+                case "Beach":
+                case "Clear":
+                case "Rough":
+                    return !params.strictEnforceSymmetry;
+                default:
+                    die("ambiguous symmetry policy");
+                }
+            default:
+                die("ambiguous symmetry policy");
+            }
+        }
+        const checkRotatedPoints = function(x, y, base) {
+            switch (params.rotations) {
+            case 1:
+                return checkPoint(x, y, base);
+            case 2:
+                return (
+                    checkPoint(           x,            y, base) &&
+                    checkPoint(size - 1 - x, size - 1 - y, base)
+                );
+            case 4:
+                return (
+                    checkPoint(           x,            y, base) &&
+                    checkPoint(size - 1 - y,            x, base) &&
+                    checkPoint(size - 1 - x, size - 1 - y, base) &&
+                    checkPoint(           y, size - 1 - x, base)
+                );
+            default:
+                die("cannot enforce symmetry for rotations other than 1, 2, or 4");
+            }
+        }
+        const obstructionMask = new Uint8Array(size * size);
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                const i = y * size + x;
+                const base = codeMap[tiles[i]].Type;
+                let equitable = checkRotatedPoints(x, y, base);
+                if (params.mirror !== 0) {
+                    equitable &&= checkRotatedPoints(...mirrorXY(x, y, size, params.mirror), base);
+                }
+                obstructionMask[i] = equitable ? 0 : 1;
+            }
+        }
+        await progress(`symmetry enforcement: obstructing`);
+        obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.FillSymmetry, random, new Uint8Array(size * size).fill(REPLACEABILITY_ENTITY));
+        dump2d("symmetry obstructions", obstructionMask, size, size);
+    }
+
     const playableArea = new Uint8Array(size * size);
     {
         await progress(`determining playable regions`);
@@ -2320,7 +2423,7 @@ async function generateMap(params) {
             if (params.externalCircularBias > 0 && region.externalCircle) {
                 continue;
             }
-            if (largest === null || region.area > largest.area) {
+            if (largest === null || region.playableArea > largest.area) {
                 largest = region;
             }
         }
@@ -2339,16 +2442,20 @@ async function generateMap(params) {
     if (params.createEntities) {
         await progress(`entities: determining eligible space`);
         const zones = [];
-        const zoneable = new Int8Array(size * size);
+        let zoneable = new Int8Array(size * size);
         for (let n = 0; n < tiles.length; n++) {
             zoneable[n] = (playableArea[n] && codeMap[tiles[n]].Type === 'Clear') ? 1 : -1;
         }
-        switch (params.rotations) {
-        case 1:
-        case 2:
-        case 4:
-            break;
-        default:
+        reserveForEntitiesInPlace(zoneable, entities, size, -1);
+        if (trivialRotate) {
+            // Improve symmetry.
+            zoneable = rotateAndMirrorGrid(
+                zoneable,
+                size,
+                params.rotations,
+                params.mirror,
+                (ps) => (ps.every((p) => p.v === 1) ? 1 : -1));
+        } else {
             // Non 1, 2, 4 rotations need entity placement confined to a circle, regardless of externalCircularBias
             reserveCircleInPlace(
                 zoneable,
@@ -2359,7 +2466,6 @@ async function generateMap(params) {
                 -1,
                 /*invert=*/true
             );
-            break;
         }
         if (params.rotations > 1 || params.mirror !== 0) {
             // Reserve the center of the map - otherwise it will mess with rotations
@@ -2673,71 +2779,6 @@ async function generateMap(params) {
         }
     }
 
-    if (params.enforceSymmetry) {
-        await progress(`symmetry enforcement: analysing`);
-        // const equitability = new Uint8Array(size * size).fill(1);
-        const checkPoint = function(x, y, base) {
-            const i = y * size + x;
-            switch (base) {
-            case "River":
-            case "Rock":
-            case "Water":
-                return true;
-            case "Beach":
-            case "Clear":
-            case "Rough":
-                switch (codeMap[tiles[i]].Type) {
-                case "River":
-                case "Rock":
-                case "Water":
-                    return false;
-                case "Beach":
-                case "Clear":
-                case "Rough":
-                    return true;
-                default:
-                    die("ambiguous symmetry policy");
-                }
-            default:
-                die("ambiguous symmetry policy");
-            }
-        }
-        const checkRotatedPoints = function(x, y, base) {
-            switch (params.rotations) {
-            case 1:
-                return checkPoint(x, y, base);
-            case 2:
-                return (
-                    checkPoint(           x,            y, base) &&
-                    checkPoint(size - 1 - x, size - 1 - y, base)
-                );
-            case 4:
-                return (
-                    checkPoint(           x,            y, base) &&
-                    checkPoint(size - 1 - y,            x, base) &&
-                    checkPoint(size - 1 - x, size - 1 - y, base) &&
-                    checkPoint(           y, size - 1 - x, base)
-                );
-            default:
-                die("cannot enforce symmetry for rotations other than 1, 2, or 4");
-            }
-        }
-        const obstructionMask = new Uint8Array(size * size);
-        for (let y = 0; y < size; y++) {
-            for (let x = 0; x < size; x++) {
-                const i = y * size + x;
-                const base = codeMap[tiles[i]].Type;
-                let equitable = checkRotatedPoints(x, y, base);
-                if (params.mirror !== 0) {
-                    equitable &&= checkRotatedPoints(...mirrorXY(x, y, size, params.mirror), base);
-                }
-                obstructionMask[i] = equitable ? 0 : 1;
-            }
-        }
-        await progress(`symmetry enforcement: obstructing`);
-        obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.FillSymmetry, random);
-    }
-
     // Assign missing indexes
     await progress(`assigning indexes to pick-any templates`);
     for (let n = 0; n < tiles.length; n++) {
@@ -3010,6 +3051,7 @@ const settingsDefinitions = [
     {name: "forestClumpiness", init: 0.5, type: "float", label: "Forest clumpiness"},
     {name: "denyWalledAreas", init: true, type: "bool", label: "Deny access to regions which might not be accessible to all players"},
     {name: "enforceSymmetry", init: false, type: "bool", label: "Improve symmetry of terrain passability with forest"},
+    {name: "strictEnforceSymmetry", init: false, type: "bool", label: "Increase strictness of symmetry improvements to terrain type"},
 
     {section: "Entity settings"},
     {name: "createEntities", init: true, type: "bool", label: "Create entities"},
