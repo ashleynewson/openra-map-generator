@@ -2660,6 +2660,9 @@ async function generateMap(params) {
                     orePlan[n] = -Infinity;
                 }
             }
+            for (const player of players) {
+                reserveCircleInPlace(orePlan, size, player.x, player.y, 3, -Infinity);
+            }
             if (trivialRotate) {
                 orePlan = rotateAndMirrorGrid(
                     orePlan,
