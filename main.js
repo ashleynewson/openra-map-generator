@@ -3019,7 +3019,7 @@ const settingsDefinitions = [
     {name: "spawnMines", init: 3, type: "int", label: "Number of spawn ore mines"},
     {name: "spawnResourceBias", init: 1.25, type: "float", label: "Bias toward spawns for starting resources"},
     {name: "resourcesPerPlayer", init: 50000, type: "int", label: "Starting total resource value per player"},
-    {name: "gemUpgrade", init: 0.1, type: "float", label: "Ore to gem upgrade probability"},
+    {name: "gemUpgrade", init: 0.05, type: "float", label: "Ore to gem upgrade probability"},
     {name: "oreUniformity", init: 0.25, type: "float", label: "Ore uniformity"},
     {name: "oreClumpiness", init: 0.25, type: "float", label: "Ore clumpiness"},
     {name: "maximumExpansionMines", init: 5, type: "int", label: "Target expansion mine count per player"},
