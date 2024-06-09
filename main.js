@@ -2004,6 +2004,7 @@ function findPlayableRegions(tiles, entities, size) {
             if (regionMask[startI] === 0 && playable[startI] === PLAYABILITY_PLAYABLE) {
                 const region = {
                     area: 0,
+                    playableArea: 0,
                     id: regions.length + 1,
                     externalCircle: false,
                 };
@@ -2423,7 +2424,7 @@ async function generateMap(params) {
             if (params.externalCircularBias > 0 && region.externalCircle) {
                 continue;
             }
-            if (largest === null || region.playableArea > largest.area) {
+            if (largest === null || region.playableArea > largest.playableArea) {
                 largest = region;
             }
         }
