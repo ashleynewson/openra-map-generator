@@ -2377,10 +2377,14 @@ async function generateMap(params) {
         await progress(`entities: zoning for spawns`);
         for (let iteration = 0; iteration < params.players; iteration++) {
             roominess = calculateRoominess(roominess, size);
-            const spawnPreference = calculateSpawnPreferences(roominess, size, params.centralReservation, params.spawnRegionSize, params.mirror);
+            const spawnPreference = calculateSpawnPreferences(roominess, size, size * params.centralReservationFraction, params.spawnRegionSize, params.mirror);
             dump2d("zoneable", zoneable, size, size);
             dump2d("player roominess", roominess, size, size);
-            const templatePlayer = findRandomMax(random, spawnPreference, size, params.spawnRegionSize);
+            let templatePlayer = findRandomMax(random, spawnPreference, size, params.spawnRegionSize);
+            if (templatePlayer.value <= 1) {
+                console.log("No ideal spawn location. Ignoring central reservation constraint.");
+                templatePlayer = findRandomMax(random, roominess, size, params.spawnRegionSize);
+            }
             const room = templatePlayer.value - 1;
             const radius1 = Math.min(params.spawnBuildSize, room);
             const radius2 = Math.min(params.spawnRegionSize, room);
@@ -3009,7 +3013,7 @@ const settingsDefinitions = [
 
     {section: "Entity settings"},
     {name: "createEntities", init: true, type: "bool", label: "Create entities"},
-    {name: "centralReservation", init: 16, type: "int", label: "Central/Mirror player reservation"},
+    {name: "centralReservationFraction", init: 0.25, type: "float", label: "Space players at least this fraction away from the center"},
     {name: "spawnRegionSize", init: 16, type: "int", label: "Spawn region size"},
     {name: "spawnBuildSize", init: 8, type: "int", label: "Spawn build size"},
     {name: "spawnMines", init: 3, type: "int", label: "Number of spawn ore mines"},
