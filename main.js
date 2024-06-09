@@ -2621,6 +2621,44 @@ async function generateMap(params) {
             }
         }
 
+        await progress(`entities: converting zones to entities`);
+        for (const zone of zones) {
+            switch (zone.type) {
+            case "mine":
+                entities.push({
+                    type: "mine",
+                    owner: "Neutral",
+                    x: zone.x,
+                    y: zone.y,
+                });
+                break;
+            case "gmine":
+                entities.push({
+                    type: "gmine",
+                    owner: "Neutral",
+                    x: zone.x,
+                    y: zone.y,
+                });
+                break;
+            case "fcom":
+            case "hosp":
+            case "bio":
+            case "oilb":
+            case "miss":
+                const entityInfo = info.EntityInfo[zone.type];
+                const x = zone.x - ((entityInfo.w - 1) / 2);
+                const y = zone.y - ((entityInfo.h - 1) / 2);
+                entities.push({
+                    type: zone.type,
+                    owner: "Neutral",
+                    x: x | 0,
+                    y: y | 0,
+                });
+                break;
+            // Default ignore
+            }
+        }
+
         {
             await progress(`ore: planning ore`);
             const oreStrength = new Float32Array(size * size);
@@ -2663,6 +2701,7 @@ async function generateMap(params) {
             for (const player of players) {
                 reserveCircleInPlace(orePlan, size, player.x, player.y, 3, -Infinity);
             }
+            reserveForEntitiesInPlace(orePlan, entities, size, -Infinity);
             if (trivialRotate) {
                 orePlan = rotateAndMirrorGrid(
                     orePlan,
@@ -2751,44 +2790,6 @@ async function generateMap(params) {
                 } else {
                     ps.forEach((p) => {remaining -= addResource(p, 2, 3)});
                 }
-            }
-        }
-
-        await progress(`entities: converting zones to entities`);
-        for (const zone of zones) {
-            switch (zone.type) {
-            case "mine":
-                entities.push({
-                    type: "mine",
-                    owner: "Neutral",
-                    x: zone.x,
-                    y: zone.y,
-                });
-                break;
-            case "gmine":
-                entities.push({
-                    type: "gmine",
-                    owner: "Neutral",
-                    x: zone.x,
-                    y: zone.y,
-                });
-                break;
-            case "fcom":
-            case "hosp":
-            case "bio":
-            case "oilb":
-            case "miss":
-                const entityInfo = info.EntityInfo[zone.type];
-                const x = zone.x - ((entityInfo.w - 1) / 2);
-                const y = zone.y - ((entityInfo.h - 1) / 2);
-                entities.push({
-                    type: zone.type,
-                    owner: "Neutral",
-                    x: x | 0,
-                    y: y | 0,
-                });
-                break;
-            // Default ignore
             }
         }
 
