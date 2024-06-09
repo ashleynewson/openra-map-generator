@@ -24,7 +24,7 @@
       <a id="saveSettings" download="map-settings.txt" href='#'>Save settings</a>
     </span>
     <br>
-    <input id="preview-size" type="range" min="0" value="512" max="1024" step="64" onchange="resizePreview()"><label>Preview size</label><br>
+    <input id="preview-size" type="range" min="0" value="512" max="1024" step="64" onchange="resizePreview()" oninput="resizePreview()"><label>Preview size</label><br>
     <div>
       <canvas style="border: 8px solid;" id="canvas" width="64" height="64"></canvas>
     </div>
