@@ -524,7 +524,7 @@ function rotateAndMirrorGrid(input, size, rotations, mirror, combineFunction) {
                 p.n = p.y * size + p.x;
                 p.v = input[p.n];
             }
-            output[y * size * x] = combineFunction(ps);
+            output[y * size + x] = combineFunction(ps);
         }
     }
     return output;
@@ -2012,7 +2012,7 @@ function findPlayableRegions(tiles, entities, size) {
             }
         }
     }
-    return [regionMask, regions];
+    return [regionMask, regions, playable];
 }
 
 // Creates a size*size Int8Array where the values mean the following about the area:
@@ -2416,7 +2416,7 @@ async function generateMap(params) {
     const playableArea = new Uint8Array(size * size);
     {
         await progress(`determining playable regions`);
-        const [regionMask, regions] = findPlayableRegions(tiles, entities, size);
+        const [regionMask, regions, playability] = findPlayableRegions(tiles, entities, size);
         dump2d("playable regions", regionMask, size, size);
         let largest = null;
         for (const region of regions) {
@@ -2434,7 +2434,7 @@ async function generateMap(params) {
             obstructArea(tiles, entities, size, obstructionMask, info.ObstacleInfo.Land, random);
         }
         for (let n = 0; n < size * size; n++) {
-            playableArea[n] = (regionMask[n] === largest.id) ? 1 : 0;
+            playableArea[n] = (playability[n] === PLAYABILITY_PLAYABLE && regionMask[n] === largest.id) ? 1 : 0;
         }
         dump2d("chosen playable area", playableArea, size, size);
     }
@@ -2454,7 +2454,8 @@ async function generateMap(params) {
                 size,
                 params.rotations,
                 params.mirror,
-                (ps) => (ps.every((p) => p.v === 1) ? 1 : -1));
+                (ps) => (ps.every((p) => p.v === 1) ? 1 : -1)
+            );
         } else {
             // Non 1, 2, 4 rotations need entity placement confined to a circle, regardless of externalCircularBias
             reserveCircleInPlace(
@@ -2607,9 +2608,8 @@ async function generateMap(params) {
             }
         }
 
-        await progress(`entities: converting zones to entities`);
-
         {
+            await progress(`ore: planning ore`);
             const oreStrength = new Float32Array(size * size);
             const gemStrength = new Float32Array(size * size);
             for (const zone of zones) {
@@ -2638,17 +2638,29 @@ async function generateMap(params) {
             dump2d("ore pattern", orePattern, size, size);
             dump2d("ore strength", oreStrength, size, size);
             dump2d("gem strength", gemStrength, size, size);
-            const priorities = new PriorityArray(size * size).fill(-Infinity);
-            let remaining = params.resourcesPerPlayer * players.length;
-            {
-                const debugOrePlan = new Float32Array(size * size);
-                for (let n = 0; n < size * size; n++) {
-                    if (playableArea[n]) {
-                        priorities.set(n, orePattern[n] * Math.max(oreStrength[n], gemStrength[n]));
-                        debugOrePlan[n] = orePattern[n] * Math.max(oreStrength[n], gemStrength[n]);
-                    }
+
+            let orePlan = new Float32Array(size * size);
+            for (let n = 0; n < size * size; n++) {
+                if (playableArea[n] && codeMap[tiles[n]].Type === 'Clear') {
+                    orePlan[n] = orePattern[n] * Math.max(oreStrength[n], gemStrength[n]);
+                } else {
+                    orePlan[n] = -Infinity;
                 }
-                dump2d("ore plan (sq)", debugOrePlan.map(Math.sqrt), size, size);
+            }
+            if (trivialRotate) {
+                orePlan = rotateAndMirrorGrid(
+                    orePlan,
+                    size,
+                    params.rotations,
+                    params.mirror,
+                    (ps) => Math.min(...ps.map(p => p.v))
+                );
+            }
+            dump2d("ore plan", orePlan.map((v) => (v === -Infinity ? -1 : v)), size, size);
+            let remaining = params.resourcesPerPlayer * players.length;
+            const priorities = new PriorityArray(size * size).fill(-Infinity);
+            for (let n = 0; n < size * size; n++) {
+                priorities.set(n, orePlan[n]);
             }
             // Return value of a given square.
             // See https://github.com/OpenRA/OpenRA/blob/9302bac6199fbc925a85fd7a08fc2ba4b9317d16/OpenRA.Mods.Common/Traits/World/ResourceLayer.cs#L144-L166
@@ -2709,6 +2721,7 @@ async function generateMap(params) {
                 let newValue = checkValue3by3(cx, cy);
                 return newValue - oldValue;
             };
+            await progress(`ore: placing ore`);
             while (remaining > 0) {
                 const n = priorities.getMaxIndex();
                 if (priorities.get(n) === -Infinity) {
@@ -2725,6 +2738,7 @@ async function generateMap(params) {
             }
         }
 
+        await progress(`entities: converting zones to entities`);
         for (const zone of zones) {
             switch (zone.type) {
             case "mine":
