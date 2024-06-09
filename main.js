@@ -593,10 +593,10 @@ function reserveCircleInPlace(grid, size, cx, cy, r, setTo, invert) {
         maxX = size - 1;
         maxY = size - 1;
     } else {
-        minX = cx - r;
-        minY = cy - r;
-        maxX = cx + r;
-        maxY = cy + r;
+        minX = Math.floor(cx - r) | 0;
+        minY = Math.floor(cy - r) | 0;
+        maxX = Math.ceil(cx + r) | 0;
+        maxY = Math.ceil(cy + r) | 0;
         if (minX < 0) { minX = 0; }
         if (minY < 0) { minX = 0; }
         if (maxX >= size) { maxX = size - 1; }
@@ -654,7 +654,7 @@ function generateFeatureRing(random, location, type, radius1, radius2, params, q
             const feature = {
                 type: randomMineType(),
                 resourceBias: params.spawnResourceBias,
-                radius: 1,
+                radius: params.mineReservation,
                 size: 1,
             };
             ring.push(feature);
@@ -668,7 +668,7 @@ function generateFeatureRing(random, location, type, radius1, radius2, params, q
             const feature = {
                 type: randomMineType(),
                 resourceBias: 1.0,
-                radius: 1,
+                radius: params.mineReservation,
                 size: 1,
             };
             ring.push(feature);
@@ -2485,7 +2485,7 @@ async function generateMap(params) {
         await progress(`entities: zoning for spawns`);
         for (let iteration = 0; iteration < params.players; iteration++) {
             roominess = calculateRoominess(roominess, size);
-            const spawnPreference = calculateSpawnPreferences(roominess, size, size * params.centralReservationFraction, params.spawnRegionSize, params.mirror);
+            const spawnPreference = calculateSpawnPreferences(roominess, size, size * params.centralSpawnReservationFraction, params.spawnRegionSize, params.mirror);
             dump2d("zoneable", zoneable, size, size);
             dump2d("player roominess", roominess, size, size);
             let templatePlayer = findRandomMax(random, spawnPreference, size, params.spawnRegionSize);
@@ -2511,7 +2511,7 @@ async function generateMap(params) {
             );
 
             let spawnZones = generateFeatureRing(random, templatePlayer, "spawn", radius1, radius2, params, {mineCount: params.spawnMines});
-            // In case we had to place the players in an awkward position, the zone might be outside the map. Just drop them if so.
+            // In case we had to place in an awkward position, the zone might be outside the map. Just drop them if so.
             spawnZones = spawnZones.filter((zone) => (
                 zone.x >= 0 && zone.x < size && zone.y >= 0 && zone.y < size
             ));
@@ -2538,9 +2538,13 @@ async function generateMap(params) {
         {
             let minesRemaining = (params.maximumExpansionMines ?? 0);
             while (minesRemaining > 0) {
-                roominess = calculateRoominess(roominess, size);
-                dump2d(`expansion roominess (${minesRemaining} mines remaining)`, roominess, size, size);
-                const templateExpansion = findRandomMax(random, roominess, size, params.maximumExpansionSize + params.expansionBorder);
+                let expansionRoominess = roominess.slice();
+                if (params.centralExpansionReservationFraction > 0) {
+                    reserveCircleInPlace(expansionRoominess, size, (size - 1) / 2, (size - 1) / 2, size * params.centralExpansionReservationFraction, -1);
+                }
+                expansionRoominess = calculateRoominess(expansionRoominess, size);
+                dump2d(`expansion roominess (${minesRemaining} mines remaining)`, expansionRoominess, size, size);
+                const templateExpansion = findRandomMax(random, expansionRoominess, size, params.maximumExpansionSize + params.expansionBorder);
                 const room = templateExpansion.value - 1;
                 let radius2 = room - params.expansionBorder;
                 if (radius2 < params.minimumExpansionSize) {
@@ -2553,7 +2557,11 @@ async function generateMap(params) {
 
                 const mineCount = Math.min(minesRemaining, 1 + random.u32() % params.maximumMinesPerExpansion);
                 minesRemaining -= mineCount;
-                const expansionZones = generateFeatureRing(random, templateExpansion, "expansion", radius1, radius2, params, {mineCount});
+                let expansionZones = generateFeatureRing(random, templateExpansion, "expansion", radius1, radius2, params, {mineCount});
+                // In case we had to place in an awkward position, the zone might be outside the map. Just drop them if so.
+                expansionZones = expansionZones.filter((zone) => (
+                    zone.x >= 0 && zone.x < size && zone.y >= 0 && zone.y < size
+                ));
                 zones.push(
                     ...rotateAndMirror(
                         expansionZones,
@@ -3074,7 +3082,9 @@ const settingsDefinitions = [
 
     {section: "Entity settings"},
     {name: "createEntities", init: true, type: "bool", label: "Create entities"},
-    {name: "centralReservationFraction", init: 0.3, type: "float", label: "Space players at least this fraction away from the center"},
+    {name: "centralSpawnReservationFraction", init: 0.3, type: "float", label: "Space players at least this fraction away from the center"},
+    {name: "centralExpansionReservationFraction", init: 0.1, type: "float", label: "Space expansions at least this fraction away from the center"},
+    {name: "mineReservation", init: 8, type: "int", label: "Space reservation around (unrelated) mines"},
     {name: "spawnRegionSize", init: 16, type: "int", label: "Spawn region size"},
     {name: "spawnBuildSize", init: 8, type: "int", label: "Spawn build size"},
     {name: "spawnMines", init: 3, type: "int", label: "Number of spawn ore mines"},
