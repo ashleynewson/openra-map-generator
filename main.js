@@ -2497,7 +2497,7 @@ async function generateMap(params) {
             const radius2 = Math.min(params.spawnRegionSize, room);
             templatePlayer.debugColor = "white";
             templatePlayer.debugRadius = 2;
-            templatePlayer.radius = params.spawnBuildSize;
+            templatePlayer.radius = params.spawnReservation;
             templatePlayer.owner = "Neutral";
             templatePlayer.type = "mpspawn";
             players.push(
@@ -2509,7 +2509,11 @@ async function generateMap(params) {
                 )
             );
 
-            const spawnZones = generateFeatureRing(random, templatePlayer, "spawn", radius1, radius2, params, {mineCount: params.spawnMines});
+            let spawnZones = generateFeatureRing(random, templatePlayer, "spawn", radius1, radius2, params, {mineCount: params.spawnMines});
+            // In case we had to place the players in an awkward position, the zone might be outside the map. Just drop them if so.
+            spawnZones = spawnZones.filter((zone) => (
+                zone.x >= 0 && zone.x < size && zone.y >= 0 && zone.y < size
+            ));
             zones.push(
                 ...rotateAndMirror(
                     [templatePlayer, ...spawnZones],
@@ -3069,10 +3073,11 @@ const settingsDefinitions = [
 
     {section: "Entity settings"},
     {name: "createEntities", init: true, type: "bool", label: "Create entities"},
-    {name: "centralReservationFraction", init: 0.25, type: "float", label: "Space players at least this fraction away from the center"},
+    {name: "centralReservationFraction", init: 0.3, type: "float", label: "Space players at least this fraction away from the center"},
     {name: "spawnRegionSize", init: 16, type: "int", label: "Spawn region size"},
     {name: "spawnBuildSize", init: 8, type: "int", label: "Spawn build size"},
     {name: "spawnMines", init: 3, type: "int", label: "Number of spawn ore mines"},
+    {name: "spawnReservation", init: 20, type: "int", label: "Spawn reservation size"},
     {name: "spawnResourceBias", init: 1.25, type: "float", label: "Bias toward spawns for starting resources"},
     {name: "resourcesPerPlayer", init: 50000, type: "int", label: "Starting total resource value per player"},
     {name: "gemUpgrade", init: 0.05, type: "float", label: "Ore to gem upgrade probability"},
