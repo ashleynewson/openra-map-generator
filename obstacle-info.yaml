@@ -139,6 +139,16 @@ Forest:
     Weight: 10
   - EntityName: "t17"
     Weight: 10
+  - EntityName: "tc01"
+    Weight: 10
+  - EntityName: "tc02"
+    Weight: 10
+  - EntityName: "tc03"
+    Weight: 10
+  - EntityName: "tc04"
+    Weight: 10
+  - EntityName: "tc05"
+    Weight: 10
   - EntityName: "t01.husk"
     Weight: 1
   - EntityName: "t02.husk"
@@ -169,6 +179,16 @@ Forest:
     Weight: 1
   - EntityName: "t17.husk"
     Weight: 1
+  - EntityName: "tc01.husk"
+    Weight: 1
+  - EntityName: "tc02.husk"
+    Weight: 1
+  - EntityName: "tc03.husk"
+    Weight: 1
+  - EntityName: "tc04.husk"
+    Weight: 1
+  - EntityName: "tc05.husk"
+    Weight: 1
 
 FillSymmetry:
   - EntityName: "t03"
@@ -187,6 +207,16 @@ FillSymmetry:
     Weight: 10
   - EntityName: "t17"
     Weight: 10
+  - EntityName: "tc01"
+    Weight: 10
+  - EntityName: "tc02"
+    Weight: 10
+  - EntityName: "tc03"
+    Weight: 10
+  - EntityName: "tc04"
+    Weight: 10
+  - EntityName: "tc05"
+    Weight: 10
   - EntityName: "t03.husk"
     Weight: 10
   - EntityName: "t10.husk"
@@ -202,4 +232,14 @@ FillSymmetry:
   - EntityName: "t15.husk"
     Weight: 10
   - EntityName: "t17.husk"
+    Weight: 10
+  - EntityName: "tc01.husk"
+    Weight: 10
+  - EntityName: "tc02.husk"
+    Weight: 10
+  - EntityName: "tc03.husk"
+    Weight: 10
+  - EntityName: "tc04.husk"
+    Weight: 10
+  - EntityName: "tc05.husk"
     Weight: 10
