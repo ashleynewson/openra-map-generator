@@ -1969,42 +1969,30 @@ function findPlayableRegions(tiles, entities, size) {
     );
     reserveForEntitiesInPlace(playable, entities, size, PLAYABILITY_PARTIAL);
     dump2d("playable", playable, size, size);
-    const addToRegion = function(region, i, fullyPlayable) {
-        regionMask[i] = region.id;
-        region.area++;
-        if (fullyPlayable) {
-            region.playableArea++;
-        }
-        if (externalCircle[i]) {
-            region.externalCircle = true;
-        }
-    };
     const fill = function(region, startX, startY) {
-        addToRegion(region, startY * size + startX, true);
-        let next = [[startX, startY, true]];
-        while (next.length !== 0) {
-            const current = next;
-            next = [];
-            for (const [cx, cy, fullyPlayable] of current) {
-                for (const [ox, oy] of SPREAD4) {
-                    let x = cx + ox;
-                    let y = cy + oy;
-                    if (x < 0 || x >= size || y < 0 || y >= size) {
-                        continue;
-                    }
-                    const i = y * size + x;
-                    if (regionMask[i] === 0) {
-                        if (fullyPlayable && playable[i] === PLAYABILITY_PLAYABLE) {
-                            addToRegion(region, i, true);
-                            next.push([x, y, true]);
-                        } else if (playable[i] === PLAYABILITY_PARTIAL) {
-                            addToRegion(region, i, false);
-                            next.push([x, y, false]);
-                        }
-                    }
+        const addToRegion = function(n, fullyPlayable) {
+            regionMask[n] = region.id;
+            region.area++;
+            if (fullyPlayable) {
+                region.playableArea++;
+            }
+            if (externalCircle[n]) {
+                region.externalCircle = true;
+            }
+        };
+        floodFill(size, [[startX, startY, true]], function(x, y, fullyPlayable) {
+            const n = y * size + x;
+            if (regionMask[n] === 0) {
+                if (fullyPlayable && playable[n] === PLAYABILITY_PLAYABLE) {
+                    addToRegion(n, true);
+                    return true;
+                } else if (playable[n] === PLAYABILITY_PARTIAL) {
+                    addToRegion(n, false);
+                    return false;
                 }
             }
-        }
+            return null;
+        });
     };
     for (let startY = 0; startY < size; startY++) {
         for (let startX = 0; startX < size; startX++) {
