@@ -164,6 +164,15 @@ const DIRECTION_U  = 6;
 const DIRECTION_RU = 7;
 const DIRECTION_NONE = -1;
 
+const SPREAD4 = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+const SPREAD4_D = [[1, 0, DIRECTION_R], [0, 1, DIRECTION_D], [-1, 0, DIRECTION_L], [0, -1, DIRECTION_U]];
+const SPREAD8 = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+const SPREAD8_D = [[1, 0, DIRECTION_R], [1, 1, DIRECTION_RD], [0, 1, DIRECTION_D], [-1, 1, DIRECTION_LD], [-1, 0, DIRECTION_L], [-1, -1, DIRECTION_LU], [0, -1, DIRECTION_U], [1, -1, DIRECTION_RU]];
+
+function directionToXY(d) {
+    return SPREAD8[d];
+}
+
 function letterToDirection(letter) {
     switch (letter) {
     case 'R' : return DIRECTION_R;
@@ -1973,12 +1982,11 @@ function findPlayableRegions(tiles, entities, size) {
     const fill = function(region, startX, startY) {
         addToRegion(region, startY * size + startX, true);
         let next = [[startX, startY, true]];
-        const spread = [[1, 0], [-1, 0], [0, 1], [0, -1]];
         while (next.length !== 0) {
             const current = next;
             next = [];
             for (const [cx, cy, fullyPlayable] of current) {
-                for (const [ox, oy] of spread) {
+                for (const [ox, oy] of SPREAD4) {
                     let x = cx + ox;
                     let y = cy + oy;
                     if (x < 0 || x >= size || y < 0 || y >= size) {
@@ -2069,19 +2077,153 @@ function pathChirality(size, paths) {
         }
     }
     dump2d("partial chirality", chirality, size, size);
-    // Spread out
-    const spread = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     while (next.length !== 0) {
         const current = next;
         next = [];
         for (const [cx, cy] of current) {
-            for (const [ox, oy] of spread) {
+            for (const [ox, oy] of SPREAD4) {
                 seedChirality(cx + ox, cy + oy, chirality[cy * size + cx]);
             }
         }
     }
 
     return chirality;
+}
+
+// Perform a generic flood fill starting at seeds [[x, y, prop, d], ...].
+//
+// The prop (propagation value) and d (propagation direction) values of the seed are
+// optional.
+//
+// For each point being considered for fill, func(x, y, prop, d) is called with
+// the current position (x, y), propagation value (prop), and propagation
+// direction (d). func should return the value to be propagated or null if not
+// to be propagated. Propagation happens to all non-diagonally adjacent
+// neighbours, regardless of whether they have previously been visited, so func
+// is responsible for terminating propagation.
+//
+// The spread argument is optional an defines the propagation pattern from a
+// point. It defaults to SPREAD4_D.
+//
+// func should capture and manipulate any necessary input and output arrays.
+//
+// Each call to func will have either an equal or greater growth/propagation
+// distance from their seed value than all calls before it. (You can think of
+// this as them being called in ordered growth layers.)
+//
+// Note that func may be called multiple times for the same spot, perhaps with
+// different propagation values. Within the same growth/propagation distance,
+// func will be called from values propagated from earlier seeds before values
+// propagated from later seeds.
+//
+// func is not called for positions outside of the bounds defined by size EXCEPT
+// for points being processed as seed values.
+function floodFill(size, seeds, func, spread) {
+    spread ??= SPREAD4_D;
+    let next = seeds;
+    while (next.length !== 0) {
+        const current = next;
+        next = [];
+        for (const [cx, cy, prop, d] of current) {
+            const newProp = func(cx, cy, prop);
+            if (newProp !== null) {
+                for (const [ox, oy, d] of spread) {
+                    const nx = cx + ox;
+                    const ny = cy + oy;
+                    if (nx < 0 || nx >= size || ny < 0 || ny >= size) {
+                        continue;
+                    }
+                    next.push([nx, ny, newProp, d]);
+                }
+            }
+        }
+    }
+}
+
+function deflateSpace(space, size) {
+    const holes = new Uint32Array(size * size);
+    let holeCount = 0;
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const n = y * size + x;
+            if (space[n] === 0 && holes[n] === 0) {
+                holeCount++;
+                floodFill(size, [[x, y, holeCount]], function(x, y, holeId) {
+                    const n = y * size + x;
+                    if (space[n] === 0 && holes[n] === 0) {
+                        holes[n] = holeId;
+                        return holeId;
+                    } else {
+                        return null;
+                    }
+                });
+            }
+        }
+    }
+    dump2d("holes", holes, size, size);
+
+    const UNASSIGNED = 0xffffffff;
+    const voronoi = new Uint32Array(size * size);
+    const distances = new Uint32Array(size * size).fill(UNASSIGNED);
+    const closestN = new Uint32Array(size * size).fill(UNASSIGNED);
+    const midN = (size * size) / 2;
+    const seeds = [];
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const n = y * size + x;
+            if (holes[n] !== 0) {
+                seeds.push([x, y, [holes[n], x, y, n]]);
+            }
+        }
+    }
+    floodFill(size, seeds, function(x, y, [holeId, sx, sy, sn]) {
+        const n = y * size + x;
+        const distance = (x - sx) ** 2 + (y - sy) ** 2;
+        if (distance < distances[n]) {
+            voronoi[n] = holeId;
+            distances[n] = distance;
+            closestN[n] = sn;
+            return [holeId, sx, sy, sn];
+        } else if (distance === distances[n]) {
+            if (closestN[n] === sn) {
+                return null;
+            } else if (n < midN === sn < closestN[n]) {
+                // For the first half of the map, lower seed indexes are preferred.
+                // For the second half of the map, higher seed indexes are preferred.
+                voronoi[n] = holeId;
+                closestN[n] = sn;
+                return [holeId, sx, sy, sn];
+            } else {
+                return null;
+            }
+        } else {
+            return null;
+        }
+    });
+    dump2d("voronoi", voronoi, size, size);
+    dump2d("distances", distances.map(Math.sqrt), size, size);
+
+    const deflatedSize = size + 1;
+    const deflated = new Uint8Array(deflatedSize * deflatedSize);
+    const neighborhood = new Uint32Array(4);
+    const scan = [[-1, -1], [0, -1], [-1, 0], [0, 0]];
+    for (let cy = 0; cy <= size; cy++) {
+        for (let cx = 0; cx <= size; cx++) {
+            for (let neighbor = 0; neighbor < 4; neighbor++) {
+                const x = Math.max(0, Math.min(cx + scan[neighbor][0], size - 1));
+                const y = Math.max(0, Math.min(cy + scan[neighbor][1], size - 1));
+                neighborhood[neighbor] = voronoi[y * size + x];
+            }
+            const cn = cy * deflatedSize + cx;
+            deflated[cn] =
+                (neighborhood[0] !== neighborhood[1] ? DIRECTION_U : 0) |
+                (neighborhood[1] !== neighborhood[3] ? DIRECTION_R : 0) |
+                (neighborhood[3] !== neighborhood[2] ? DIRECTION_D : 0) |
+                (neighborhood[2] !== neighborhood[0] ? DIRECTION_L : 0);
+        }
+    }
+
+    return deflated;
 }
 
 async function generateMap(params) {
@@ -2438,6 +2580,24 @@ async function generateMap(params) {
             playableArea[n] = (playability[n] === PLAYABILITY_PLAYABLE && regionMask[n] === largest.id) ? 1 : 0;
         }
         dump2d("chosen playable area", playableArea, size, size);
+    }
+
+    {
+        let space = new Uint8Array(size * size);
+        for (let n = 0; n < space.length; n++) {
+            space[n] = playableArea[n] && codeMap[tiles[n]].Type === 'Clear';
+        }
+        if (trivialRotate) {
+            // Improve symmetry.
+            space = rotateAndMirrorGrid(
+                space,
+                size,
+                params.rotations,
+                params.mirror,
+                (ps) => ps.reduce((acc, p) => (acc && p.v), true)
+            );
+        }
+        dump2d("deflated playable space", deflateSpace(space, size).map(v => !!v), size + 1, size + 1);
     }
 
     if (params.createEntities) {
