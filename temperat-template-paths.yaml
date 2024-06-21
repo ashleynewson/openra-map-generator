@@ -551,3 +551,496 @@
   EndDir: U
   PathND: [[1, 1], [1, 0]]
   Path:   [[1, 1], [1, 0]]
+
+
+
+"Template@173":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: D
+      EndDir: D
+      EndType: "Clear"
+      PathND: [[1, 0], [1, 1]]
+      Path:   [[1, 0], [1, 1]]
+    - StartDir: U
+      EndDir: U
+      StartType: "Clear"
+      PathND: [[2, 1], [2, 0]]
+      Path:   [[2, 1], [2, 0]]
+"Template@174":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: L
+      EndDir: L
+      EndType: "Clear"
+      PathND: [[2, 0], [1, 0]]
+      Path:   [[2, 0], [1, 0]]
+    - StartDir: R
+      EndDir: R
+      StartType: "Clear"
+      PathND: [[1, 1], [2, 1]]
+      Path:   [[1, 1], [2, 1]]
+"Template@175":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: U
+      EndDir: U
+      EndType: "Clear"
+      PathND: [[1, 2], [1, 1]]
+      Path:   [[1, 2], [1, 1]]
+    - StartDir: D
+      EndDir: D
+      StartType: "Clear"
+      PathND: [[0, 1], [0, 2]]
+      Path:   [[0, 1], [0, 2]]
+"Template@176":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: R
+      EndType: "Clear"
+      PathND: [[0, 2], [1, 2]]
+      Path:   [[0, 2], [1, 2]]
+    - StartDir: L
+      EndDir: L
+      StartType: "Clear"
+      PathND: [[1, 1], [0, 1]]
+      Path:   [[1, 1], [0, 1]]
+"Template@177":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: D
+      EndDir: D
+      PathND: [[1, 0], [1, 1], [0, 1], [0, 2], [0, 3], [0, 4], [1, 4]]
+      Path:   [[1, 0], [1, 1], [0, 2], [0, 3], [1, 4]]
+    - StartDir: U
+      EndDir: U
+      PathND: [[2, 4], [2, 3], [1, 3], [1, 2], [2, 2], [2, 1], [2, 0]]
+      Path:   [[2, 4], [1, 3], [1, 2], [2, 1], [2, 0]]
+"Template@178":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: D
+      EndDir: D
+      PathND: [[0, 0], [0, 1], [0, 2], [0, 3]]
+      Path:   [[0, 0], [0, 1], [0, 2], [0, 3]]
+    - StartDir: U
+      EndDir: U
+      PathND: [[1, 3], [1, 2], [1, 1], [1, 0]]
+      Path:   [[1, 3], [1, 2], [1, 1], [1, 0]]
+"Template@179":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: D
+      EndDir: D
+      PathND: [[1, 0], [1, 1], [1, 2]]
+      Path:   [[1, 0], [1, 1], [1, 2]]
+    - StartDir: U
+      EndDir: U
+      PathND: [[2, 2], [2, 1], [2, 0]]
+      Path:   [[2, 2], [2, 1], [2, 0]]
+"Template@180":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: D
+      EndDir: D
+      PathND: [[1, 0], [1, 1], [1, 2]]
+      Path:   [[1, 0], [1, 1], [1, 2]]
+    - StartDir: U
+      EndDir: U
+      PathND: [[2, 2], [2, 1], [2, 0]]
+      Path:   [[2, 2], [2, 1], [2, 0]]
+"Template@181":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: R
+      PathND: [[0, 2], [1, 2], [2, 2], [3, 2], [4, 2]]
+      Path:   [[0, 2], [1, 2], [2, 2], [3, 2], [4, 2]]
+    - StartDir: L
+      EndDir: L
+      PathND: [[4, 1], [3, 1], [2, 1], [1, 1], [0, 1]]
+      Path:   [[4, 1], [3, 1], [2, 1], [1, 1], [0, 1]]
+"Template@182":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: R
+      PathND: [[0, 2], [1, 2], [2, 2], [3, 2], [4, 2]]
+      Path:   [[0, 2], [1, 2], [2, 2], [3, 2], [4, 2]]
+    - StartDir: L
+      EndDir: L
+      PathND: [[4, 1], [3, 1], [2, 1], [1, 1], [0, 1]]
+      Path:   [[4, 1], [3, 1], [2, 1], [1, 1], [0, 1]]
+"Template@183":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: R
+      PathND: [[0, 2], [1, 2], [2, 2]]
+      Path:   [[0, 2], [1, 2], [2, 2]]
+    - StartDir: L
+      EndDir: L
+      PathND: [[2, 1], [1, 1], [0, 1]]
+      Path:   [[2, 1], [1, 1], [0, 1]]
+"Template@184":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: R
+      PathND: [[0, 2], [1, 2], [2, 2]]
+      Path:   [[0, 2], [1, 2], [2, 2]]
+    - StartDir: L
+      EndDir: L
+      PathND: [[2, 1], [1, 1], [0, 1]]
+      Path:   [[2, 1], [1, 1], [0, 1]]
+"Template@185":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: R
+      PathND: [[0, 1], [1, 1], [1, 2], [2, 2], [2, 3], [3, 3], [4, 3]]
+      Path:   [[0, 1], [1, 1], [2, 2], [3, 3], [4, 3]]
+    - StartDir: L
+      EndDir: L
+      PathND: [[4, 2], [3, 2], [3, 1], [2, 1], [2, 0], [1, 0], [0, 0]]
+      Path:   [[4, 2], [3, 1], [2, 0], [1, 0], [0, 0]]
+# 186 - 191 are junctions
+"Template@192":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: D
+      EndDir: R
+      PathND: [[0, 0], [0, 1], [0, 2], [1, 2], [1, 3], [2, 3], [3, 3]]
+      Path:   [[0, 0], [0, 1], [1, 2], [2, 3], [3, 3]]
+    - StartDir: L
+      EndDir: U
+      PathND: [[3, 2], [2, 2], [2, 1], [1, 1], [1, 0]]
+      Path:   [[3, 2], [2, 2], [1, 1], [1, 0]]
+"Template@193":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: U
+      EndDir: R
+      PathND: [[2, 2], [2, 1], [3, 1]]
+      Path:   [[2, 2], [2, 1], [3, 1]]
+    - StartDir: L
+      EndDir: D
+      PathND: [[3, 0], [2, 0], [1, 0], [1, 1], [1, 2]]
+      Path:   [[3, 0], [2, 0], [1, 1], [1, 2]]
+"Template@194":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: D
+      PathND: [[0, 2], [1, 2], [1, 3]]
+      Path:   [[0, 2], [1, 2], [1, 3]]
+    - StartDir: U
+      EndDir: L
+      PathND: [[2, 3], [2, 2], [2, 1], [1, 1], [0, 1]]
+      Path:   [[2, 3], [2, 2], [2, 1], [1, 1], [0, 1]]
+"Template@195":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: U
+      PathND: [[0, 3], [1, 3], [2, 3], [2, 2], [2, 1], [2, 0]]
+      Path:   [[0, 3], [1, 3], [2, 2], [2, 1], [2, 0]]
+    - StartDir: D
+      EndDir: L
+      PathND: [[1, 0], [1, 1], [1, 2], [0, 2]]
+      Path:   [[1, 0], [1, 1], [0, 2]]
+"Template@196":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RD
+      EndDir: RD
+      StartType: "RoadIn"
+      EndType: "RoadOut"
+      PathND: [[0, 1], [0, 2], [1, 2], [1, 3], [2, 3]]
+      Path:   [[0, 1], [1, 2], [2, 3]]
+    - StartDir: LU
+      EndDir: LU
+      StartType: "RoadIn"
+      EndType: "RoadOut"
+      PathND: [[3, 2], [3, 1], [2, 1], [2, 0], [1, 0]]
+      Path:   [[3, 2], [2, 1], [1, 0]]
+"Template@197":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RD
+      EndDir: RD
+      StartType: "RoadIn"
+      EndType: "RoadOut"
+      PathND: [[0, 1], [0, 2], [1, 2], [1, 3], [2, 3]]
+      Path:   [[0, 1], [1, 2], [2, 3]]
+    - StartDir: LU
+      EndDir: LU
+      StartType: "RoadIn"
+      EndType: "RoadOut"
+      PathND: [[3, 2], [3, 1], [2, 1], [2, 0], [1, 0]]
+      Path:   [[3, 2], [2, 1], [1, 0]]
+"Template@198":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RD
+      EndDir: RD
+      StartType: "RoadOut"
+      EndType: "RoadIn"
+      PathND: [[0, 1], [0, 2], [1, 2]]
+      Path:   [[0, 1], [1, 2]]
+    - StartDir: LU
+      EndDir: LU
+      StartType: "RoadOut"
+      EndType: "RoadIn"
+      PathND: [[2, 1], [2, 0], [1, 0]]
+      Path:   [[2, 1], [1, 0]]
+"Template@199":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RD
+      EndDir: RD
+      StartType: "RoadOut"
+      EndType: "RoadIn"
+      PathND: [[0, 1], [0, 2], [1, 2]]
+      Path:   [[0, 1], [1, 2]]
+    - StartDir: LU
+      EndDir: LU
+      StartType: "RoadOut"
+      EndType: "RoadIn"
+      PathND: [[2, 1], [2, 0], [1, 0]]
+      Path:   [[2, 1], [1, 0]]
+"Template@200":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: RD
+      EndType: "RoadIn"
+      PathND: [[0, 1], [1, 1], [1, 2]]
+      Path:   [[0, 1], [1, 2]]
+    - StartDir: LU
+      EndDir: L
+      StartType: "RoadOut"
+      PathND: [[2, 1], [2, 0], [1, 0], [0, 0]]
+      Path:   [[2, 1], [1, 0], [0, 0]]
+"Template@201":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: D
+      EndDir: RD
+      EndType: "RoadIn"
+      PathND: [[0, 0], [0, 1], [0, 2], [1, 2]]
+      Path:   [[0, 0], [0, 1], [1, 2]]
+    - StartDir: LU
+      EndDir: U
+      StartType: "RoadOut"
+      # Misses out an official road square
+      PathND: [[2, 1], [1, 1], [1, 0]]
+      Path:   [[2, 1], [1, 0]]
+# 202 is a junction
+"Template@203":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RD
+      EndDir: R
+      StartType: "RoadOut"
+      PathND: [[0, 1], [0, 2], [1, 2], [2, 2]]
+      Path:   [[0, 1], [1, 2], [2, 2]]
+    - StartDir: L
+      EndDir: LU
+      EndType: "RoadIn"
+      # Misses out an official road square
+      PathND: [[2, 1], [1, 1], [1, 0]]
+      Path:   [[2, 1], [1, 0]]
+"Template@204":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RD
+      EndDir: D
+      StartType: "RoadOut"
+      PathND: [[0, 1], [0, 2]]
+      Path:   [[0, 1], [0, 2]]
+    - StartDir: U
+      EndDir: LU
+      EndType: "RoadIn"
+      # Misses out an official road square
+      PathND: [[1, 2], [1, 1], [1, 0]]
+      Path:   [[1, 2], [1, 1], [1, 0]]
+# 205 is a junction
+"Template@206":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RU
+      EndDir: RU
+      StartType: "RoadIn"
+      EndType: "RoadOut"
+      PathND: [[1, 3], [2, 3], [2, 2], [3, 2], [3, 1]]
+      Path:   [[1, 3], [2, 2], [3, 1]]
+    - StartDir: LD
+      EndDir: LD
+      StartType: "RoadIn"
+      EndType: "RoadOut"
+      PathND: [[2, 0], [1, 0], [1, 1], [0, 1], [0, 2]]
+      Path:   [[2, 0], [1, 1], [0, 2]]
+"Template@207":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RU
+      EndDir: RU
+      StartType: "RoadIn"
+      EndType: "RoadOut"
+      PathND: [[1, 3], [2, 3], [2, 2], [3, 2], [3, 1]]
+      Path:   [[1, 3], [2, 2], [3, 1]]
+    - StartDir: LD
+      EndDir: LD
+      StartType: "RoadIn"
+      EndType: "RoadOut"
+      PathND: [[2, 0], [1, 0], [1, 1], [0, 1], [0, 2]]
+      Path:   [[2, 0], [1, 1], [0, 2]]
+"Template@208":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RU
+      EndDir: RU
+      StartType: "RoadOut"
+      EndType: "RoadIn"
+      PathND: [[1, 2], [2, 2], [2, 1]]
+      Path:   [[1, 2], [2, 2], [2, 1]]
+    - StartDir: LD
+      EndDir: LD
+      StartType: "RoadOut"
+      EndType: "RoadIn"
+      PathND: [[1, 0], [0, 0], [0, 1]]
+      Path:   [[1, 0], [0, 0], [0, 1]]
+"Template@208":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RU
+      EndDir: RU
+      StartType: "RoadOut"
+      EndType: "RoadIn"
+      PathND: [[1, 2], [2, 2], [2, 1]]
+      Path:   [[1, 2], [2, 2], [2, 1]]
+    - StartDir: LD
+      EndDir: LD
+      StartType: "RoadOut"
+      EndType: "RoadIn"
+      PathND: [[1, 0], [0, 0], [0, 1]]
+      Path:   [[1, 0], [0, 0], [0, 1]]
+"Template@210":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RU
+      EndDir: R
+      StartType: "RoadOut"
+      # Misses out an official road square
+      PathND: [[1, 2], [1, 1], [2, 1]]
+      Path:   [[1, 2], [2, 1]]
+    - StartDir: L
+      EndDir: LD
+      EndType: "RoadIn"
+      PathND: [[2, 0], [1, 0], [0, 0], [0, 1]]
+      Path:   [[2, 0], [1, 0], [0, 1]]
+"Template@211":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: RU
+      EndDir: U
+      StartType: "RoadOut"
+      PathND: [[1, 2], [2, 2], [2, 1], [2, 0]]
+      Path:   [[1, 2], [2, 1], [2, 0]]
+    - StartDir: D
+      EndDir: LD
+      EndType: "RoadIn"
+      # Misses out an official road square
+      PathND: [[1, 0], [1, 1], [0, 1]]
+      Path:   [[1, 0], [0, 1]]
+# 212 is a junction
+"Template@213":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: RU
+      EndType: "RoadIn"
+      PathND: [[0, 2], [1, 2], [2, 2], [2, 1]]
+      Path:   [[0, 2], [1, 2], [2, 1]]
+    - StartDir: LD
+      EndDir: L
+      StartType: "RoadOut"
+      PathND: [[1, 0], [1, 1], [0, 1]]
+      Path:   [[1, 0], [0, 1]]
+"Template@214":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: U
+      EndDir: RU
+      EndType: "RoadIn"
+      # Misses out an official road square
+      PathND: [[1, 2], [1, 1], [2, 1]]
+      Path:   [[1, 2], [2, 1]]
+    - StartDir: LD
+      EndDir: D
+      StartType: "RoadOut"
+      PathND: [[1, 0], [0, 0], [0, 1], [0, 2]]
+      Path:   [[1, 0], [0, 1], [0, 2]]
+# 215 is a junction
+# 216 - 226 are not assigned to roads
+"Template@227":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: D
+      EndDir: D
+      # Misses out an official road square
+      PathND: [[0, 0], [0, 1]]
+      Path:   [[0, 0], [0, 1]]
+    - StartDir: U
+      EndDir: U
+      PathND: [[1, 1], [1, 0]]
+      Path:   [[1, 1], [1, 0]]
+"Template@228":
+  Type: "Road"
+  AnyLane: true
+  Lanes:
+    - StartDir: R
+      EndDir: R
+      # Misses out an official road square
+      PathND: [[0, 1], [1, 1]]
+      Path:   [[0, 1], [1, 1]]
+    - StartDir: L
+      EndDir: L
+      PathND: [[1, 0], [0, 0]]
+      Path:   [[1, 0], [0, 0]]

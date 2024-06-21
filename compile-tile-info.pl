@@ -57,7 +57,7 @@ for my $template (values %{$tileset->{Templates}}) {
 my $output = {
     Tileset => $tileset,
     TileInfo => $tile_info,
-    TemplatePaths => $template_paths,
+    TemplatePathDefinitions => $template_paths,
     EntityInfo => $entity_info,
     ObstacleInfo => $obstacle_info,
 };

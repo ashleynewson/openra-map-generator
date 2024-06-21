@@ -164,10 +164,44 @@ const DIRECTION_U  = 6;
 const DIRECTION_RU = 7;
 const DIRECTION_NONE = -1;
 
+const DIRECTION_M_R  = 1 << DIRECTION_R;
+const DIRECTION_M_RD = 1 << DIRECTION_RD;
+const DIRECTION_M_D  = 1 << DIRECTION_D;
+const DIRECTION_M_LD = 1 << DIRECTION_LD;
+const DIRECTION_M_L  = 1 << DIRECTION_L;
+const DIRECTION_M_LU = 1 << DIRECTION_LU;
+const DIRECTION_M_U  = 1 << DIRECTION_U;
+const DIRECTION_M_RU = 1 << DIRECTION_RU;
+
 const SPREAD4 = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 const SPREAD4_D = [[1, 0, DIRECTION_R], [0, 1, DIRECTION_D], [-1, 0, DIRECTION_L], [0, -1, DIRECTION_U]];
 const SPREAD8 = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
 const SPREAD8_D = [[1, 0, DIRECTION_R], [1, 1, DIRECTION_RD], [0, 1, DIRECTION_D], [-1, 1, DIRECTION_LD], [-1, 0, DIRECTION_L], [-1, -1, DIRECTION_LU], [0, -1, DIRECTION_U], [1, -1, DIRECTION_RU]];
+
+function countDirections(dm) {
+    let count = 0;
+    for (let m = dm; m !== 0; m >>= 1) {
+        if (m & 1) {
+            count++;
+        }
+    }
+    return count;
+}
+
+function maskToDirection(dm) {
+    switch (dm) {
+    case DIRECTION_M_R:  return DIRECTION_R;
+    case DIRECTION_M_RD: return DIRECTION_RD;
+    case DIRECTION_M_D:  return DIRECTION_D;
+    case DIRECTION_M_LD: return DIRECTION_LD;
+    case DIRECTION_M_L:  return DIRECTION_L;
+    case DIRECTION_M_LU: return DIRECTION_LU;
+    case DIRECTION_M_U:  return DIRECTION_U;
+    case DIRECTION_M_RU: return DIRECTION_RU;
+    default:
+        return DIRECTION_NONE;
+    }
+}
 
 function directionToXY(d) {
     return SPREAD8[d];
@@ -777,6 +811,37 @@ function kernelBlur(input, size, kernel, kernelW, kernelH, kernelX, kernelY) {
     return output;
 }
 
+function kernelDilate(input, size, kernel, kernelW, kernelH, kernelX, kernelY, erode) {
+    const output = new Uint8Array(size * size).fill(erode ? 1 : 0);
+    for (let cy = 0; cy < size; cy++) {
+        center: for (let cx = 0; cx < size; cx++) {
+            for (let ky = 0; ky < kernelH; ky++) {
+                for (let kx = 0; kx < kernelW; kx++) {
+                    const x = cx + kx - kernelX;
+                    const y = cy + ky - kernelY;
+                    if (x < 0 || x >= size || y < 0 || y >= size) {
+                        continue;
+                    }
+                    if (kernel[ky * kernelW + kx]) {
+                        if (erode) {
+                            if (input[y * size + x] <= 0) {
+                                output[cy * size + cx] = 0;
+                                continue center;
+                            }
+                        } else {
+                            if (input[y * size + x] > 0) {
+                                output[cy * size + cx] = 1;
+                                continue center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return output;
+}
+
 function medianBlur(input, size, radius, extendOut, threshold) {
     extendOut ??= false;
     const halfThreshold = (threshold ?? 0) / 2;
@@ -1253,6 +1318,118 @@ function zeroLinesToPaths(elevation, size) {
     return paths;
 }
 
+function removeJunctionsFromDirectionMap(input, size) {
+    const output = input.slice();
+    for (let cy = 0; cy < size; cy++) {
+        for (let cx = 0; cx < size; cx++) {
+            const cn = cy * size + cx;
+            const dm = input[cn];
+            if (countDirections(dm) > 2) {
+                output[cn] = 0;
+                for (const [ox, oy, d] of SPREAD8_D) {
+                    const x = ox + cx;
+                    const y = oy + cy;
+                    if (x < 0 || x >= size || y < 0 || y >= size) {
+                        continue;
+                    }
+                    const dr = reverseDirection(d);
+                    output[y * size + x] &= ~(1 << dr);
+                }
+            }
+        }
+    }
+    for (let i = 0; i < size; i++) {
+        output[i                    ] &= ~(DIRECTION_M_LU | DIRECTION_M_U | DIRECTION_M_RU);
+        output[(size - 1) * size + i] &= ~(DIRECTION_M_RD | DIRECTION_M_D | DIRECTION_M_LD);
+        output[i * size             ] &= ~(DIRECTION_M_LD | DIRECTION_M_L | DIRECTION_M_LU);
+        output[i * size + (size - 1)] &= ~(DIRECTION_M_RU | DIRECTION_M_R | DIRECTION_M_RD);
+    }
+    return output;
+}
+
+// Assumes that paths do not have overlapping end points
+function deduplicateAndNormalizePaths(inputs, size, shouldReverse) {
+    shouldReverse ??= function(path) {
+        const mid = (size - 1) / 2;
+        const v1x = path[0].x - mid;
+        const v1y = path[0].y - mid;
+        const v2x = path[path.length-1].x - mid;
+        const v2y = path[path.length-1].y - mid;
+        // Rotation around center?
+        const crossProd = (v1x * v2y) - (v2x * v1y);
+        if (crossProd !== 0) {
+            return crossProd > 0 ? false : true;
+        }
+        // Distance from center?
+        const r1 = v1x * v1x + v1y * v1y;
+        const r2 = v2x * v2x + v2y * v2y;
+        if (r1 !== r2) {
+            return r1 < r2;
+        }
+        // Absolute angle
+        return v1y === v2y ? v1x > v2x : v1y > v2y;
+    };
+    const outputs = [];
+    const lookup = new Uint8Array(size * size);
+    for (const path of inputs) {
+        const normalized = shouldReverse(path) ? path.toReversed() : path;
+        const n = normalized[0].y * size + normalized[0].x;
+        if (!lookup[n]) {
+            outputs.push(normalized);
+            lookup[n] = 1;
+        }
+    }
+    return outputs;
+}
+
+function shrinkPaths(inputs, shrinkBy, minimumLength) {
+    minimumLength ??= 2;
+    minimumLength > 1 || die("minimumLength must be greater than 1");
+    const outputs = [];
+    for (const path of inputs) {
+        if (path.length < shrinkBy * 2 + minimumLength) {
+            continue;
+        }
+        outputs.push(path.slice(shrinkBy, path.length - shrinkBy));
+    }
+    return outputs;
+}
+
+function directionMapToPaths(input, size) {
+    // Loops not handled, but these would be extremely rare anyway.
+    const paths = [];
+    for (let sy = 0; sy < size; sy++) {
+        for (let sx = 0; sx < size; sx++) {
+            const sn = sy * size + sx;
+            const sdm = input[sn];
+            if (maskToDirection(sdm) !== DIRECTION_NONE) {
+                const path = [];
+                let x = sx;
+                let y = sy;
+                let reverseDm = 0;
+                point: for (;;) {
+                    path.push({x, y});
+                    const dm = input[y * size + x] & ~reverseDm;
+                    for (const [ox, oy, d] of SPREAD8_D) {
+                        if (dm & (1 << d)) {
+                            x = ox + x;
+                            y = oy + y;
+                            if (x < 0 || x >= size || y < 0 || y >= size) {
+                                die("input should not link out of bounds");
+                            }
+                            reverseDm = 1 << reverseDirection(d);
+                            continue point;
+                        }
+                    }
+                    break point;
+                }
+                paths.push(path);
+            }
+        }
+    }
+    return paths;
+}
+
 function maskPaths(paths, mask, gridSize) {
     const newPaths = [];
     const isGood = function(point) {
@@ -1430,6 +1607,9 @@ function reverseDirection(direction) {
     }
     return direction ^ 4;
 }
+function reverseDirectionMask(mask) {
+    return ((mask & 0b00001111) << 4) | ((mask & 0b11110000) >> 4);
+}
 
 function paintTemplate(tiles, size, px, py, template) {
     for (const [tx, ty] of template.Shape) {
@@ -1444,7 +1624,8 @@ function paintTemplate(tiles, size, px, py, template) {
     }
 }
 
-function tilePath(tiles, tilesSize, path, random, minimumThickness) {
+function tilePath(tiles, tilesSize, path, random, minimumThickness, nonDiagonal) {
+    nonDiagonal ??= true;
     let minPointX = Infinity;
     let minPointY = Infinity;
     let maxPointX = -Infinity;
@@ -1523,28 +1704,28 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
                             gradientX[i] += directionX;
                             gradientY[i] += directionY;
                             if (x > minX) {
-                                traversables[i] |= 1 << DIRECTION_L;
+                                traversables[i] |= DIRECTION_M_L;
                             }
                             if (x < maxX) {
-                                traversables[i] |= 1 << DIRECTION_R;
+                                traversables[i] |= DIRECTION_M_R;
                             }
                             if (y > minY) {
-                                traversables[i] |= 1 << DIRECTION_U;
+                                traversables[i] |= DIRECTION_M_U;
                             }
                             if (y < maxY) {
-                                traversables[i] |= 1 << DIRECTION_D;
+                                traversables[i] |= DIRECTION_M_D;
                             }
                             if (x > minX && y > minY) {
-                                traversables[i] |= 1 << DIRECTION_LU;
+                                traversables[i] |= DIRECTION_M_LU;
                             }
                             if (x > minX && y < maxY) {
-                                traversables[i] |= 1 << DIRECTION_LD;
+                                traversables[i] |= DIRECTION_M_LD;
                             }
-                            if (x > maxX && y > minY) {
-                                traversables[i] |= 1 << DIRECTION_RU;
+                            if (x < maxX && y > minY) {
+                                traversables[i] |= DIRECTION_M_RU;
                             }
-                            if (x > maxX && y < maxY) {
-                                traversables[i] |= 1 << DIRECTION_RD;
+                            if (x < maxX && y < maxY) {
+                                traversables[i] |= DIRECTION_M_RD;
                             }
                         }
                     }
@@ -1575,6 +1756,10 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
     const endTypeN = info.typeNs[endType] ?? die(`Bad end type ${endType}`);
     const startBorderN = info.borderNs[startTypeN][path.startDirN];
     const endBorderN = info.borderNs[endTypeN][path.endDirN];
+    const internalTypeNs = [];
+    for (const internalType of path.internalTypes ?? [path.type]) {
+        internalTypeNs[info.typeNs[internalType]] = true;
+    }
 
     const templates = path.permittedTemplates ?? info.templatesByType[path.type] ?? die(`missing templatesByType entry for ${mainType}`);
 ;
@@ -1617,19 +1802,31 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
     // Higher scores are worse matches.
     // MAX_SCORE means totally unacceptable.
     const scoreTemplate = function(template, fx, fy) {
-        const expectStartTypeN = (fx === start.x && fy === start.y) ? startTypeN : mainTypeN;
-        if (template.StartTypeN !== expectStartTypeN) {
-            return MAX_SCORE;
+        if (fx === start.x && fy === start.y) {
+            if (template.StartTypeN !== startTypeN) {
+                return MAX_SCORE;
+            }
+        } else {
+            if (!internalTypeNs[template.StartTypeN]) {
+                return MAX_SCORE;
+            }
         }
-        const expectEndTypeN = (fx + template.MovesX === end.x && fy + template.MovesY === end.y) ? endTypeN : mainTypeN;
-        if (template.EndTypeN !== expectEndTypeN) {
-            return MAX_SCORE;
+        if (fx + template.MovesX === end.x && fy + template.MovesY === end.y) {
+            if (template.EndTypeN !== endTypeN) {
+                return MAX_SCORE;
+            }
+        } else {
+            if (!internalTypeNs[template.EndTypeN]) {
+                return MAX_SCORE;
+            }
         }
+
         let deviationAcc = 0;
         let progressionAcc = 0;
-        const lastPointI = template.RelPathND.length - 1;
+        const relPath = nonDiagonal ? template.RelPathND : template.RelPath;
+        const lastPointI = relPath.length - 1;
         for (let pointI = 0; pointI <= lastPointI; pointI++) {
-            const point = template.RelPathND[pointI];
+            const point = relPath[pointI];
             const px = fx + point.x;
             const py = fy + point.y;
             const pi = py * sizeX + px;
@@ -1759,11 +1956,12 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness) {
         const template = random.pick(candidates);
         const fx = tx - template.MovesX;
         const fy = ty - template.MovesY;
-        const templateInfo = info.Tileset.Templates[template.Name];
+        const templateInfo = info.Tileset.Templates[template.PaintName];
         paintTemplate(tiles, tilesSize, fx - template.OffsetX + minPointX, fy - template.OffsetY + minPointY, templateInfo);
+        const relPath = nonDiagonal ? template.RelPathND : template.RelPath;
         // Skip end point as it is recorded in the previous template.
-        for (let i = template.RelPathND.length - 2; i >= 0; i--) {
-            const point = template.RelPathND[i];
+        for (let i = relPath.length - 2; i >= 0; i--) {
+            const point = relPath[i];
             resultPath.push({
                 x: fx + point.x + minPointX,
                 y: fy + point.y + minPointY,
@@ -2204,10 +2402,10 @@ function deflateSpace(space, size) {
             }
             const cn = cy * deflatedSize + cx;
             deflated[cn] =
-                (neighborhood[0] !== neighborhood[1] ? DIRECTION_U : 0) |
-                (neighborhood[1] !== neighborhood[3] ? DIRECTION_R : 0) |
-                (neighborhood[3] !== neighborhood[2] ? DIRECTION_D : 0) |
-                (neighborhood[2] !== neighborhood[0] ? DIRECTION_L : 0);
+                (neighborhood[0] !== neighborhood[1] ? DIRECTION_M_U : 0) |
+                (neighborhood[1] !== neighborhood[3] ? DIRECTION_M_R : 0) |
+                (neighborhood[3] !== neighborhood[2] ? DIRECTION_M_D : 0) |
+                (neighborhood[2] !== neighborhood[0] ? DIRECTION_M_L : 0);
         }
     }
 
@@ -2570,7 +2768,7 @@ async function generateMap(params) {
         dump2d("chosen playable area", playableArea, size, size);
     }
 
-    {
+    if (params.roads) {
         let space = new Uint8Array(size * size);
         for (let n = 0; n < space.length; n++) {
             space[n] = playableArea[n] && codeMap[tiles[n]].Type === 'Clear';
@@ -2585,7 +2783,40 @@ async function generateMap(params) {
                 (ps) => ps.reduce((acc, p) => (acc && p.v), true)
             );
         }
-        dump2d("deflated playable space", deflateSpace(space, size).map(v => !!v), size + 1, size + 1);
+        {
+            const kernelSize = params.roadSpacing * 2 + 1;
+            const kernel = new Uint8Array(kernelSize * kernelSize);
+            reserveCircleInPlace(kernel, kernelSize, params.roadSpacing, params.roadSpacing, params.roadSpacing, 1);
+            space = kernelDilate(space, size, kernel, kernelSize, kernelSize, params.roadSpacing, params.roadSpacing, true);
+        }
+        const deflated = deflateSpace(space, size);
+        dump2d("deflated playable space", deflated.map(v => !!v), size + 1, size + 1);
+        const noJunctions = removeJunctionsFromDirectionMap(deflated, size + 1);
+        dump2d("simple space", noJunctions.map(v => !!v), size + 1, size + 1);
+        let roads = shrinkPaths(deduplicateAndNormalizePaths(directionMapToPaths(noJunctions, size + 1), size + 1), 3, 16);
+        dump2d("simple space paths", noJunctions.map(v => 0), size + 1, size + 1, roads.flat());
+        // TODO: Fix consistency of path.points structuring in various methods.
+        roads = roads.map(road => tweakPath({points: road}, size));
+        roads.forEach(road => {
+            road.type = "Road";
+            road.internalTypes = ["Road", "RoadIn", "RoadOut"];
+            if (!road.isLoop) {
+                road.startType = "Clear";
+                road.endType = "Clear";
+            }
+        });
+        // Roads that are _almost_ vertical or horizontal tile badly.
+        roads = roads.filter(function(road) {
+            const points = road.points;
+            let minX = Math.min(...points.map(p => p.x));
+            let minY = Math.min(...points.map(p => p.y));
+            let maxX = Math.max(...points.map(p => p.x));
+            let maxY = Math.max(...points.map(p => p.y));
+            return (maxX - minX >= 6 && maxY - minY >= 6);
+        });
+        for (const road of roads) {
+            tilePath(tiles, size, road, random, params.roadSpacing * 2, false);
+        }
     }
 
     if (params.createEntities) {
@@ -3231,6 +3462,8 @@ const settingsDefinitions = [
     {name: "denyWalledAreas", init: true, type: "bool", label: "Deny access to regions which might not be accessible to all players"},
     {name: "enforceSymmetry", init: false, type: "bool", label: "Improve symmetry of terrain passability with forest"},
     {name: "strictEnforceSymmetry", init: false, type: "bool", label: "Increase strictness of symmetry improvements to terrain type"},
+    {name: "roads", init: true, type: "bool", label: "Add roads"},
+    {name: "roadSpacing", init: 5, type: "int", label: "Road spacing"},
 
     {section: "Entity settings"},
     {name: "createEntities", init: true, type: "bool", label: "Create entities"},
@@ -3624,50 +3857,83 @@ Promise.all([
             "Coastline": 0,
             "Clear": 1,
             "Cliff": 2,
+            "Road": 3,
+            "RoadIn": 4,
+            "RoadOut": 5,
         };
-        info.borderNs = [
-            [0, 1, 2, 3, 4, 5, 6, 7], // 0: Coastline
-            [8, 9, 10, 11, 12, 13, 14, 15], // 1: Clear
-            [16, 17, 18, 19, 20, 21, 22, 23], // 2: Cliff
-        ];
+        info.borderNs = [];
+        for (let typeN = 0; typeN < Object.keys(info.typeNs).length; typeN++) {
+            const borderNs = [];
+            for (let d = 0; d < 8; d++) {
+                borderNs.push(typeN * 8 + d);
+            }
+            info.borderNs.push(borderNs);
+        }
         info.templatesByType = {
             "Coastline": [],
             "Clear": [],
             "Cliff": [],
+            "Road": [],
         };
-        for (const templateName of Object.keys(info.TemplatePaths).toSorted()) {
-            const template = info.TemplatePaths[templateName];
-            template.Path = template.Path.map(p => ({x: p[0] | 0, y: p[1] | 0}));
-            template.PathND = template.PathND.map(p => ({x: p[0] | 0, y: p[1] | 0}));
-            template.Name = templateName;
-            template.StartDir = letterToDirection(template.StartDir);
-            template.EndDir = letterToDirection(template.EndDir);
-            template.StartType ??= template.Type;
-            template.EndType ??= template.Type;
-            template.StartTypeN = info.typeNs[template.StartType];
-            template.EndTypeN = info.typeNs[template.EndType];
-            template.StartBorderN = info.borderNs[template.StartTypeN][template.StartDir];
-            template.EndBorderN = info.borderNs[template.EndTypeN][template.EndDir];
-            template.MovesX = template.Path[template.Path.length-1].x - template.Path[0].x;
-            template.MovesY = template.Path[template.Path.length-1].y - template.Path[0].y;
-            template.OffsetX = template.Path[0].x;
-            template.OffsetY = template.Path[0].y;
-            template.Progress = template.Path.length - 1;
-            template.ProgressLow = Math.ceil(template.Progress / 2);
-            template.ProgressHigh = Math.floor(template.Progress * 1.5);
-            info.templatesByType[template.Type].push(template);
-            // Last point has no direction.
-            for (let i = 0; i < template.PathND.length - 1; i++) {
-                template.PathND[i].d = calculateDirectionPoints(template.PathND[i], template.PathND[i+1]);
+        info.TemplatePaths = {};
+        for (const templateEntryName of Object.keys(info.TemplatePathDefinitions).toSorted()) {
+            const templateEntry = info.TemplatePathDefinitions[templateEntryName];
+            let lanes = templateEntry.Lanes ?? [templateEntry];
+            for (let laneNumber = 0; laneNumber < lanes.length; laneNumber++) {
+                const lane = lanes[laneNumber];
+                const templateName = `${templateEntryName}<${laneNumber}>`;
+                const template = {};
+                template.Path = lane.Path.map(p => ({x: p[0] | 0, y: p[1] | 0}));
+                template.PathND = lane.PathND.map(p => ({x: p[0] | 0, y: p[1] | 0}));
+                template.Name = templateName;
+                template.PaintName = templateEntryName;
+                template.StartDir = letterToDirection(lane.StartDir);
+                template.EndDir = letterToDirection(lane.EndDir);
+                template.Type = templateEntry.Type;
+                template.StartType = lane.StartType ?? template.Type;
+                template.EndType = lane.EndType ?? template.Type;
+                template.StartTypeN = info.typeNs[template.StartType];
+                template.EndTypeN = info.typeNs[template.EndType];
+                template.StartBorderN = info.borderNs[template.StartTypeN][template.StartDir];
+                template.EndBorderN = info.borderNs[template.EndTypeN][template.EndDir];
+                template.MovesX = template.Path[template.Path.length-1].x - template.Path[0].x;
+                template.MovesY = template.Path[template.Path.length-1].y - template.Path[0].y;
+                template.OffsetX = template.Path[0].x;
+                template.OffsetY = template.Path[0].y;
+                template.Progress = template.Path.length - 1;
+                template.ProgressLow = Math.ceil(template.Progress / 2);
+                template.ProgressHigh = Math.floor(template.Progress * 1.5);
+                info.templatesByType[template.Type].push(template);
+
+                // Last point has no direction.
+                for (let i = 0; i < template.PathND.length - 1; i++) {
+                    template.PathND[i].d = calculateDirectionPoints(template.PathND[i], template.PathND[i+1]);
+                    template.PathND[i].d !== DIRECTION_NONE || die("bad template path");
+                }
+                template.PathND[template.PathND.length - 1].d = DIRECTION_NONE;
+                template.RelPathND = template.PathND.map(p => ({
+                    x: p.x - template.OffsetX,
+                    y: p.y - template.OffsetY,
+                    d: p.d, // direction
+                    dm: 1 << p.d, // direction mask
+                    dmr: 1 << reverseDirection(p.d), // direction mask reverse
+                }));
+
+                for (let i = 0; i < template.Path.length - 1; i++) {
+                    template.Path[i].d = calculateDirectionPoints(template.Path[i], template.Path[i+1]);
+                    template.Path[i].d !== DIRECTION_NONE || die("bad template path");
+                }
+                template.Path[template.Path.length - 1].d = DIRECTION_NONE;
+                template.RelPath = template.Path.map(p => ({
+                    x: p.x - template.OffsetX,
+                    y: p.y - template.OffsetY,
+                    d: p.d, // direction
+                    dm: 1 << p.d, // direction mask
+                    dmr: 1 << reverseDirection(p.d), // direction mask reverse
+                }));
+
+                info.TemplatePaths[templateEntryName] = template;
             }
-            template.PathND[template.PathND.length - 1].d = DIRECTION_NONE;
-            template.RelPathND = template.PathND.map(p => ({
-                x: p.x - template.OffsetX,
-                y: p.y - template.OffsetY,
-                d: p.d, // direction
-                dm: 1 << p.d, // direction mask
-                dmr: 1 << reverseDirection(p.d), // direction mask reverse
-            }));
         }
 
         info.replaceabilityMap = {};
@@ -3705,6 +3971,7 @@ Promise.all([
                     }
                     break;
                 case "Beach":
+                case "Road":
                     info.replaceabilityMap[tile] = REPLACEABILITY_TILE;
                     if (info.playabilityMap[tile] === PLAYABILITY_UNPLAYABLE) {
                         info.playabilityMap[tile] = PLAYABILITY_PARTIAL;
