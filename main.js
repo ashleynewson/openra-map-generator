@@ -82,6 +82,30 @@ function dump2d(label, data, w, h, points) {
     debugDiv.append(canvas);
 }
 
+// Convert a Uint8Array direction mask to a form easier to see in dump2d.
+function directionMaskForDump2d(input, w, h) {
+    const outW = w * 4;
+    const outH = h * 4;
+    const output = new Uint8Array(outW * outH);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const n = y * w + x;
+            const c = (y * 4) * outW + (x * 4) + outW + 1;
+            if (input[n] !== 0) {
+                output[c] = 8;
+                for (const [ox, oy, d] of SPREAD8_D) {
+                    if (input[n] & (1 << d)) {
+                        output[c + (oy * outW) + ox] = 4;
+                    }
+                }
+            } else {
+                output[c] = 1;
+            }
+        }
+    }
+    return [output, outW, outH];
+}
+
 const EXTERNAL_BIAS = 1000000;
 
 // Replaceability like this isn't a perfect system. It can produce
@@ -1347,14 +1371,15 @@ function removeJunctionsFromDirectionMap(input, size) {
     return output;
 }
 
-// Assumes that paths do not have overlapping end points
-function deduplicateAndNormalizePaths(inputs, size, shouldReverse) {
-    shouldReverse ??= function(path) {
+// Assumes that inputs do not have overlapping end points.
+// No loop support.
+function deduplicateAndNormalizePointArrays(inputs, size, shouldReverse) {
+    shouldReverse ??= function(points) {
         const mid = (size - 1) / 2;
-        const v1x = path[0].x - mid;
-        const v1y = path[0].y - mid;
-        const v2x = path[path.length-1].x - mid;
-        const v2y = path[path.length-1].y - mid;
+        const v1x = points[0].x - mid;
+        const v1y = points[0].y - mid;
+        const v2x = points[points.length-1].x - mid;
+        const v2y = points[points.length-1].y - mid;
         // Rotation around center?
         const crossProd = (v1x * v2y) - (v2x * v1y);
         if (crossProd !== 0) {
@@ -1371,8 +1396,8 @@ function deduplicateAndNormalizePaths(inputs, size, shouldReverse) {
     };
     const outputs = [];
     const lookup = new Uint8Array(size * size);
-    for (const path of inputs) {
-        const normalized = shouldReverse(path) ? path.toReversed() : path;
+    for (const points of inputs) {
+        const normalized = shouldReverse(points) ? points.toReversed() : points;
         const n = normalized[0].y * size + normalized[0].x;
         if (!lookup[n]) {
             outputs.push(normalized);
@@ -1382,33 +1407,34 @@ function deduplicateAndNormalizePaths(inputs, size, shouldReverse) {
     return outputs;
 }
 
-function shrinkPaths(inputs, shrinkBy, minimumLength) {
+// No loop support.
+function shrinkPointArrays(inputs, shrinkBy, minimumLength) {
     minimumLength ??= 2;
     minimumLength > 1 || die("minimumLength must be greater than 1");
     const outputs = [];
-    for (const path of inputs) {
-        if (path.length < shrinkBy * 2 + minimumLength) {
+    for (const points of inputs) {
+        if (points.length < shrinkBy * 2 + minimumLength) {
             continue;
         }
-        outputs.push(path.slice(shrinkBy, path.length - shrinkBy));
+        outputs.push(points.slice(shrinkBy, points.length - shrinkBy));
     }
     return outputs;
 }
 
-function directionMapToPaths(input, size) {
+function directionMapToPointArrays(input, size) {
     // Loops not handled, but these would be extremely rare anyway.
-    const paths = [];
+    const pointArrays = [];
     for (let sy = 0; sy < size; sy++) {
         for (let sx = 0; sx < size; sx++) {
             const sn = sy * size + sx;
             const sdm = input[sn];
             if (maskToDirection(sdm) !== DIRECTION_NONE) {
-                const path = [];
+                const points = [];
                 let x = sx;
                 let y = sy;
                 let reverseDm = 0;
                 point: for (;;) {
-                    path.push({x, y});
+                    points.push({x, y});
                     const dm = input[y * size + x] & ~reverseDm;
                     for (const [ox, oy, d] of SPREAD8_D) {
                         if (dm & (1 << d)) {
@@ -1423,11 +1449,11 @@ function directionMapToPaths(input, size) {
                     }
                     break point;
                 }
-                paths.push(path);
+                pointArrays.push(points);
             }
         }
     }
-    return paths;
+    return pointArrays;
 }
 
 function maskPaths(paths, mask, gridSize) {
@@ -1567,6 +1593,34 @@ function tweakPath(path, size) {
     return tweakedPath;
 }
 
+function inertiallyExtendPathInPlace(points, extension, inertialRange) {
+    if (inertialRange > points.length - 1) {
+        inertialRange = points.length - 1;
+    }
+    const sd = calculateNonDiagonalDirectionXY(
+        points[inertialRange].x - points[0].x,
+        points[inertialRange].y - points[0].y
+    );
+    const ed = calculateNonDiagonalDirectionXY(
+        points[points.length - 1].x - points[points.length - inertialRange - 1].x,
+        points[points.length - 1].y - points[points.length - inertialRange - 1].y
+    );
+    for (let i = 0; i < extension; i++) {
+        const sp = {x: points[0].x, y: points[0].y};
+        const [ox, oy] = directionToXY(sd);
+        sp.x -= ox;
+        sp.y -= oy;
+        points.unshift(sp);
+    }
+    for (let i = 0; i < extension; i++) {
+        const ep = {x: points[points.length - 1].x, y: points[points.length - 1].y};
+        const [ox, oy] = directionToXY(ed);
+        ep.x += ox;
+        ep.y += oy;
+        points.push(ep);
+    }
+}
+
 function calculateDirectionXY(dx, dy) {
     if (dx > 0) {
         if (dy > 0) {
@@ -1594,6 +1648,21 @@ function calculateDirectionXY(dx, dy) {
             die("Bad direction");
         }
     }
+}
+function calculateNonDiagonalDirectionXY(dx, dy) {
+    if ( dx - dy > 0 &&  dx + dy >= 0) {
+        return DIRECTION_R;
+    }
+    if ( dy + dx > 0 &&  dy - dx >= 0) {
+        return DIRECTION_D;
+    }
+    if (-dx + dy > 0 && -dx - dy >= 0) {
+        return DIRECTION_L;
+    }
+    if (-dy - dx > 0 && -dy + dx >= 0) {
+        return DIRECTION_U;
+    }
+    die("bad direction");
 }
 function calculateDirectionPoints(now, next) {
     const dx = next.x - now.x;
@@ -1745,6 +1814,9 @@ function tilePath(tiles, tilesSize, path, random, minimumThickness, nonDiagonal)
             directions[i] = (0b100000111000001 >> (7 - direction)) & 0b11111111;
         }
     }
+    // dump2d("directions", ...directionMaskForDump2d(directions, sizeX, sizeY));
+    // dump2d("traversables", ...directionMaskForDump2d(traversables, sizeX, sizeY));
+    // dump2d("deviations", deviations.map(v => (v === MAX_DEVIATION ? 0 : v)), sizeX, sizeY);
 
     const start = points[0];
     const end = points[points.length-1];
@@ -2793,14 +2865,23 @@ async function generateMap(params) {
         dump2d("deflated playable space", deflated.map(v => !!v), size + 1, size + 1);
         const noJunctions = removeJunctionsFromDirectionMap(deflated, size + 1);
         dump2d("simple space", noJunctions.map(v => !!v), size + 1, size + 1);
-        let roads = shrinkPaths(deduplicateAndNormalizePaths(directionMapToPaths(noJunctions, size + 1), size + 1), 3, 16);
-        dump2d("simple space paths", noJunctions.map(v => 0), size + 1, size + 1, roads.flat());
-        // TODO: Fix consistency of path.points structuring in various methods.
-        roads = roads.map(road => tweakPath({points: road}, size));
+        const pointArrays =
+            shrinkPointArrays(
+                deduplicateAndNormalizePointArrays(
+                    directionMapToPointArrays(noJunctions, size + 1),
+                    size + 1
+                ),
+                4,
+                12
+            );
+        pointArrays.forEach(points => {inertiallyExtendPathInPlace(points, 2, 8);});
+        dump2d("simple space points", noJunctions.map(v => 0), size + 1, size + 1, pointArrays.flat());
+        let roads = pointArrays.map(points => tweakPath({points: points}, size));
         roads.forEach(road => {
             road.type = "Road";
             road.internalTypes = ["Road", "RoadIn", "RoadOut"];
             if (!road.isLoop) {
+                // Not reached currently
                 road.startType = "Clear";
                 road.endType = "Clear";
             }
