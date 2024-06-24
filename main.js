@@ -2398,7 +2398,7 @@ function floodFill(size, seeds, func, spread) {
     }
 }
 
-function deflateSpace(space, size) {
+function deflateSpace(space, size, outsideIsHole) {
     const holes = new Uint32Array(size * size);
     let holeCount = 0;
     for (let y = 0; y < size; y++) {
@@ -2432,6 +2432,16 @@ function deflateSpace(space, size) {
             if (holes[n] !== 0) {
                 seeds.push([x, y, [holes[n], x, y, n]]);
             }
+        }
+    }
+    if (outsideIsHole) {
+        holeCount++;
+        for (let i = 0; i < size; i++) {
+            // Hack: closestN is actually inside, but starting x, y are outside.
+            seeds.push([       i,        0, [holeCount,    i,   -1, i]]);
+            seeds.push([       i, size - 1, [holeCount,    i, size, (size - 1) * size + i]]);
+            seeds.push([       0,        i, [holeCount,   -1,    i, i * size]]);
+            seeds.push([size - 1,        i, [holeCount, size,    i, i * size + (size - 1)]]);
         }
     }
     floodFill(size, seeds, function(x, y, [holeId, sx, sy, sn]) {
@@ -2738,6 +2748,34 @@ async function generateMap(params) {
                 break;
             }
         }
+        if (params.forestCutout > 0) {
+            let space = new Uint8Array(size * size);
+            for (let n = 0; n < space.length; n++) {
+                space[n] = (codeMap[tiles[n]].Type === 'Clear');
+            }
+            if (trivialRotate) {
+                // Improve symmetry.
+                space = rotateAndMirrorGrid(
+                    space,
+                    size,
+                    params.rotations,
+                    params.mirror,
+                    (ps) => ps.reduce((acc, p) => (acc && p.v), true)
+                );
+            }
+            // This is grid points, not squares. Has a size of `size + 1`.
+            const deflated = deflateSpace(space, size, true);
+            const kernel = new Uint8Array(4 * params.forestCutout * params.forestCutout).fill(1);
+            const inflated = kernelDilate(deflated, size + 1, kernel, 2 * params.forestCutout, 2 * params.forestCutout, params.forestCutout, params.forestCutout);
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    if (inflated[y * (size + 1) + x]) {
+                        forests[y * size + x] = 0;
+                    }
+                }
+            }
+        }
+        dump2d("forests with cutouts", forests, size, size);
         obstructArea(tiles, entities, size, forests, info.ObstacleInfo.Forest, random);
     }
 
@@ -3529,6 +3567,7 @@ const settingsDefinitions = [
     {name: "water", init: 0.5, type: "float", label: "Water fraction"},
     {name: "mountains", init: 0.1, type: "float", label: "Mountain fraction"},
     {name: "forests", init: 0.025, type: "float", label: "Forest fraction"},
+    {name: "forestCutout", init: 2, type: "int", label: "Forest path cutout"},
     {name: "externalCircularBias", init: 0, type: "int", label: "Bias external circle altitude (-1, 0, 1)"},
     {name: "terrainSmoothing", init: 4, type: "int", label: "Terrain smoothing"},
     {name: "smoothingThreshold", init: 0.33, type: "float", label: "Iterative smoothing threshold"},
